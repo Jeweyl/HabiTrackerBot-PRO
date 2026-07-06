@@ -1,52 +1,63 @@
-"""Application entry point — verifies infrastructure readiness."""
+"""Application entry point — starts the Telegram bot with graceful shutdown."""
 
 import asyncio
 import logging
+import signal
 
-from sqlalchemy import text
-
-from src.db.session import async_engine
+from src.bot import bot, dp
+from src.handlers.common import router as common_router
 
 logger = logging.getLogger(__name__)
 
 
-async def check_database_connection() -> bool:
-    """Verify database connectivity by executing a lightweight query.
-
-    Returns:
-        True if the connection is successful and ``SELECT 1`` returns the
-        expected result.
-    """
-    async with async_engine.connect() as conn:
-        result = await conn.execute(text("SELECT 1"))
-        row = result.scalar()
-        return row == 1
-
-
-async def main() -> None:
-    """Run the infrastructure readiness check.
-
-    Steps:
-        1. Initialize logging.
-        2. Check database connection via ``SELECT 1``.
-        3. Print success message and exit.
-    """
+def _setup_logging() -> None:
+    """Configure root logger with a standard format and INFO level."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    logger.info("Checking database connection...")
 
-    connected = await check_database_connection()
-    if not connected:
-        logger.error("Database connection check returned unexpected result.")
-        raise SystemExit(1)
+async def main() -> None:
+    """Start the bot with polling and handle OS signals for graceful shutdown.
 
-    print("🚀 Bot infrastructure ready! Database connected.")
+    Steps:
+        1. Configure logging.
+        2. Register handler routers on the dispatcher.
+        3. Start polling in a background task.
+        4. Wait for SIGINT or SIGTERM, then stop polling and close the bot session.
+    """
+    _setup_logging()
 
-    # Dispose the engine pool before exiting
-    await async_engine.dispose()
+    dp.include_router(common_router)
+
+    logger.info("Starting bot polling...")
+    stop_event = asyncio.Event()
+
+    def _signal_handler() -> None:
+        logger.info("Shutdown signal received, stopping bot...")
+        stop_event.set()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, _signal_handler)
+        except NotImplementedError:
+            # Windows does not support add_signal_handler for SIGTERM
+            signal.signal(sig, lambda *_: _signal_handler())
+
+    polling_task = asyncio.create_task(dp.start_polling(bot))
+
+    await stop_event.wait()
+
+    polling_task.cancel()
+    try:
+        await polling_task
+    except asyncio.CancelledError:
+        pass
+
+    await bot.session.close()
+    logger.info("Bot stopped.")
 
 
 if __name__ == "__main__":

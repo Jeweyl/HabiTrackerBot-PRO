@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models for the application database."""
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import BigInteger, DateTime, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -30,20 +30,18 @@ class User(Base):
     telegram_id: Mapped[int] = mapped_column(
         BigInteger, unique=True, nullable=False, index=True
     )
-    language: Mapped[str] = mapped_column(
-        String(10), default="ru", server_default="ru"
-    )
+    language: Mapped[str] = mapped_column(String(10), default="ru", server_default="ru")
     timezone: Mapped[str] = mapped_column(
         String(50), default="UTC", server_default="UTC"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
+        default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
     )

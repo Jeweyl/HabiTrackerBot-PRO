@@ -1,5 +1,7 @@
 FROM python:3.10-slim
 
+ENV PYTHONPATH=/app
+
 WORKDIR /app
 
 # Install system dependencies if needed
