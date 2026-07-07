@@ -47,3 +47,21 @@ class EditHabitFSM(StatesGroup):
     end_time = State()
     frequency = State()
     confirm_delete = State()
+
+
+class NewTaskFSM(StatesGroup):
+    """FSM group for the "New Task" creation wizard.
+
+    Attributes:
+        select_date: User selects a date via the calendar (entry point).
+        title: User enters the task title.
+        start_time: User selects the task start time.
+        end_time: User selects the task end time (may be ``None``).
+        confirm: User reviews and confirms the task before saving.
+    """
+
+    select_date = State()
+    title = State()
+    start_time = State()
+    end_time = State()
+    confirm = State()

@@ -1,6 +1,7 @@
 """Inline keyboard generators for the Telegram bot."""
 
-from datetime import time
+import calendar
+from datetime import date, time
 
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -185,4 +186,138 @@ def get_delete_confirmation_keyboard(
     )
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(2)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Month calendar keyboard — used for date selection
+# ---------------------------------------------------------------------------
+
+WEEKDAY_HEADERS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+"""Column headers for the calendar grid."""
+
+MONTH_NAMES = [
+    "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+]
+"""Russian month names indexed by month number (1‑based)."""
+
+
+def get_month_calendar_keyboard(
+    year: int,
+    month: int,
+) -> InlineKeyboardMarkup:
+    """Build a month calendar grid with navigation controls.
+
+    The calendar renders a 7‑column grid (Mon–Sun) for the given *year*
+    and *month*.  Each day is a button with callback
+    ``calendar:day:YYYY-MM-DD``.  The current month/year is shown in the
+    first row as a non‑clickable label.  Navigation buttons allow
+    switching to the previous or next month and going back to the main
+    menu.
+
+    Args:
+        year: Year to display (e.g. 2026).
+        month: Month to display (1‑based, 1 = January).
+
+    Returns:
+        InlineKeyboardMarkup with the calendar grid and controls.
+    """
+    builder = InlineKeyboardBuilder()
+
+    # --- Row 1: month/year header (non‑clickable) ---
+    month_label = MONTH_NAMES[month] if 1 <= month <= 12 else str(month)
+    builder.button(text=f"{month_label} {year}", callback_data="ignore")
+
+    # --- Row 2: weekday headers ---
+    for header in WEEKDAY_HEADERS:
+        builder.button(text=header, callback_data="ignore")
+
+    # --- Rows 3+: day grid ---
+    # calendar.monthcalendar returns weeks as lists of 7 ints; 0 = not in month
+    weeks = calendar.monthcalendar(year, month)
+    today = date.today()
+    for week in weeks:
+        for day_num in week:
+            if day_num == 0:
+                # Empty cell
+                builder.button(text=" ", callback_data="ignore")
+            else:
+                cell_date = date(year, month, day_num)
+                label = str(day_num)
+                # Highlight today
+                if cell_date == today:
+                    label = f"•{day_num}•"
+                builder.button(
+                    text=label,
+                    callback_data=f"calendar:day:{cell_date.isoformat()}",
+                )
+
+    # --- Navigation row ---
+    # Previous month
+    prev_month = month - 1 if month > 1 else 12
+    prev_year = year if month > 1 else year - 1
+    builder.button(
+        text="⬅️ Предыдущий",
+        callback_data=f"calendar:month:{prev_year}:{prev_month}",
+    )
+    # Next month
+    next_month = month + 1 if month < 12 else 1
+    next_year = year if month < 12 else year + 1
+    builder.button(
+        text="➡️ Следующий",
+        callback_data=f"calendar:month:{next_year}:{next_month}",
+    )
+    # Back to main menu
+    builder.button(text="🔙 Назад", callback_data="nav:back")
+
+    # Adjust: 1 (header) + 7 (weekdays) + N*7 (days) + 3 (nav)
+    num_weeks = len(weeks)
+    builder.adjust(1, 7, *([7] * num_weeks), 3)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Day actions keyboard — shown after selecting a day
+# ---------------------------------------------------------------------------
+
+
+def get_day_keyboard(selected_date: date) -> InlineKeyboardMarkup:
+    """Build an inline keyboard with actions for a selected day.
+
+    Provides buttons to add a task, view the schedule for that day, and
+    navigate back to the month calendar.
+
+    Args:
+        selected_date: The date selected by the user.
+
+    Returns:
+        InlineKeyboardMarkup with add / view / back buttons.
+    """
+    iso = selected_date.isoformat()
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📅 Добавить задачу", callback_data=f"task:add:{iso}")
+    builder.button(text="📋 Просмотр расписания", callback_data=f"task:view:{iso}")
+    builder.button(text="🔙 Назад", callback_data="nav:back")
+    builder.adjust(1, 1, 1)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Task confirmation keyboard — used before saving a new task
+# ---------------------------------------------------------------------------
+
+
+def get_task_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for confirming task creation.
+
+    Returns:
+        InlineKeyboardMarkup with ``✅ Подтвердить``, ``⬅️ Назад``,
+        and ``❌ Отмена`` buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Подтвердить", callback_data="task:save")
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(1, 1, 1)
     return builder.as_markup()

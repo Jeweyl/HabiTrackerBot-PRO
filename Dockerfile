@@ -19,4 +19,5 @@ COPY src/ ./src/
 COPY alembic.ini .
 COPY alembic/ ./alembic/
 
-CMD ["python", "src/main.py"]
+# Run Alembic migrations and then start the bot
+CMD ["sh", "-c", "alembic upgrade head && python src/main.py"]
