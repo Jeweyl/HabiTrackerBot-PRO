@@ -11,7 +11,8 @@ MAIN_MENU_BUTTONS: list[tuple[str, str]] = [
     ("➕ Новая привычка", "main_menu:new_habit"),
     ("✅ Новая задача", "main_menu:new_task"),
     ("Посмотреть список дел на сегодня", "main_menu:today_tasks"),
-    ("Отметить выполненные задачи за сегодня", "main_menu:complete_tasks"),
+    ("📅 Посмотреть расписание", "main_menu:view_schedule"),
+    ("Отметить выполненные дела", "main_menu:complete_tasks"),
     ("📊 Статистика", "main_menu:statistics"),
     ("⚙️ Настройки", "main_menu:settings"),
     ("❓ Помощь", "main_menu:help"),
@@ -285,20 +286,19 @@ def get_month_calendar_keyboard(
 def get_day_keyboard(selected_date: date) -> InlineKeyboardMarkup:
     """Build an inline keyboard with actions for a selected day.
 
-    Provides buttons to add a task, view the schedule for that day, and
-    navigate back to the month calendar.
+    Provides buttons to add a task and navigate back to the month calendar.
 
     Args:
         selected_date: The date selected by the user.
 
     Returns:
-        InlineKeyboardMarkup with add / view / back buttons.
+        InlineKeyboardMarkup with add / back / main menu buttons.
     """
     iso = selected_date.isoformat()
     builder = InlineKeyboardBuilder()
     builder.button(text="📅 Добавить задачу", callback_data=f"task:add:{iso}")
-    builder.button(text="📋 Просмотр расписания", callback_data=f"task:view:{iso}")
     builder.button(text="🔙 Назад", callback_data="nav:back")
+    builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
     builder.adjust(1, 1, 1)
     return builder.as_markup()
 
@@ -395,6 +395,27 @@ def get_schedule_management_keyboard(
 
 
 # ---------------------------------------------------------------------------
+# Simple schedule keyboard — navigation only (no task management buttons)
+# ---------------------------------------------------------------------------
+
+
+def get_simple_schedule_keyboard() -> InlineKeyboardMarkup:
+    """Build a minimal keyboard with only navigation buttons.
+
+    Used when showing the schedule in read-only mode (e.g. before adding
+    a task).
+
+    Returns:
+        InlineKeyboardMarkup with 🔙 Назад and 🏠 В главное меню buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔙 Назад", callback_data="nav:back")
+    builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
 # Conflict resolution keyboard — force / edit / cancel
 # ---------------------------------------------------------------------------
 
@@ -486,7 +507,6 @@ def get_task_management_keyboard(
         )
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
-    # Calculate row layout: 2 + optional 1 + 2 (back+cancel)
     row_spec = [1, 1]
     if has_habit and is_modified:
         row_spec.append(1)
@@ -536,4 +556,69 @@ def get_task_confirm_changes_keyboard() -> InlineKeyboardMarkup:
     )
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(2)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Cancel input keyboard — shown during text-input states
+# ---------------------------------------------------------------------------
+
+
+def get_cancel_input_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard with cancel/exit buttons for text-input states.
+
+    Returns:
+        InlineKeyboardMarkup with ❌ Отмена and 🏠 В главное меню buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="input:cancel")
+    builder.button(text="🏠 В главное меню", callback_data="input:goto_main")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Habit conflict resolution keyboard
+# ---------------------------------------------------------------------------
+
+
+def get_habit_conflict_resolution_keyboard(
+    is_edit: bool = False,
+) -> InlineKeyboardMarkup:
+    """Build an inline keyboard for resolving habit time conflicts.
+
+    Args:
+        is_edit: If ``True``, include the "Edit Conflicting Tasks" button.
+
+    Returns:
+        InlineKeyboardMarkup with conflict resolution buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="⏰ Изменить время",
+        callback_data="conflict_habit:change_time",
+    )
+    builder.button(
+        text="📆 Изменить частоту",
+        callback_data="conflict_habit:change_frequency",
+    )
+    builder.button(
+        text="📅 Изменить расписание",
+        callback_data="conflict_habit:edit_schedule",
+    )
+    if is_edit:
+        builder.button(
+            text="📋 Редактировать конфликтующие задачи",
+            callback_data="conflict_habit:edit_tasks",
+        )
+    builder.button(
+        text="✅ Всё равно добавить",
+        callback_data="conflict_habit:force_add",
+    )
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    row_spec = [1, 1, 1]
+    if is_edit:
+        row_spec.append(1)
+    row_spec.extend([1, 1])
+    builder.adjust(*row_spec)
     return builder.as_markup()

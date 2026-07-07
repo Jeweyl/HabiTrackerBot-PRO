@@ -34,7 +34,7 @@ async def test_start_creates_user(
     # Check the response
     assert message.text == "🏠 Главное меню бота\nВыберите действие:"
     assert message.reply_markup is not None
-    assert len(message.reply_markup.inline_keyboard) == 8
+    assert len(message.reply_markup.inline_keyboard) == 9
 
     # Check that the user was persisted
     stmt = select(User).where(User.telegram_id == 123456)

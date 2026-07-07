@@ -98,3 +98,14 @@ class EditTaskFSM(StatesGroup):
     edit_start_time = State()
     edit_end_time = State()
     confirm_changes = State()
+
+
+class ConflictHabitFSM(StatesGroup):
+    """FSM group for resolving habit time conflicts.
+
+    Attributes:
+        choose_action: User chooses how to handle the conflict
+            (change time / frequency / force add / edit schedule / edit tasks / cancel).
+    """
+
+    choose_action = State()

@@ -13,12 +13,14 @@ from sqlalchemy import select
 from src.db.models import Habit, Task, User
 from src.db.session import get_db
 from src.keyboards.inline import (
+    get_cancel_input_keyboard,
     get_conflict_resolution_keyboard,
     get_day_keyboard,
     get_edit_task_field_keyboard,
     get_main_menu_keyboard,
     get_month_calendar_keyboard,
     get_schedule_management_keyboard,
+    get_simple_schedule_keyboard,
     get_task_confirm_changes_keyboard,
     get_task_confirm_keyboard,
     get_task_delete_confirmation_keyboard,
@@ -60,15 +62,26 @@ async def _show_schedule(
     target: Message,
     schedule_date: date,
     state: FSMContext,
+    show_management_buttons: bool = True,
+    edit: bool = True,
 ) -> None:
-    """Fetch and display the task schedule for a specific date."""
+    """Fetch and display the task schedule for a specific date.
+
+    Args:
+        show_management_buttons: If ``True``, each task has a ``task:manage``
+            button.  If ``False``, only navigation buttons are shown.
+        edit: If ``True``, edit the existing ``target`` message.
+            If ``False``, send a new message (e.g. after a success notice).
+    """
     await state.clear()
     await state.set_state(MainFSM.main_menu)
+
+    send = target.edit_text if edit else target.answer
 
     async with get_db() as session:
         user_id = await _get_user_id(telegram_id, session)
         if user_id is None:
-            await target.answer(
+            await send(
                 "⚠️ Пользователь не найден. Используйте /start для регистрации.",
                 reply_markup=get_main_menu_keyboard(),
             )
@@ -83,9 +96,9 @@ async def _show_schedule(
         tasks = result.scalars().all()
 
     if not tasks:
-        await target.answer(
+        await send(
             "На этот день задач нет.",
-            reply_markup=get_day_keyboard(schedule_date),
+            reply_markup=get_simple_schedule_keyboard(),
         )
         return
 
@@ -101,10 +114,12 @@ async def _show_schedule(
             )
         lines.append(f"{i}. {status} {task.title} ({time_str})")
 
-    await target.answer(
-        "\n".join(lines),
-        reply_markup=get_schedule_management_keyboard(tasks),
+    keyboard = (
+        get_schedule_management_keyboard(tasks)
+        if show_management_buttons
+        else get_simple_schedule_keyboard()
     )
+    await send("\n".join(lines), reply_markup=keyboard)
 
 
 # ===========================================================================
@@ -118,7 +133,7 @@ async def start_new_task(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     today = date.today()
     await state.set_state(NewTaskFSM.select_date)
-    await callback.message.answer(
+    await callback.message.edit_text(
         "📅 Выберите дату для задачи:",
         reply_markup=get_month_calendar_keyboard(today.year, today.month),
     )
@@ -149,10 +164,31 @@ async def navigate_month(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("calendar:day:"))
 async def select_day(callback: CallbackQuery, state: FSMContext) -> None:
-    """Handle a day selection on the calendar."""
+    """Handle a day selection on the calendar — branches by view_mode."""
     await callback.answer()
     iso_date = callback.data.split(":", 2)[2]
     selected = date.fromisoformat(iso_date)
+    data = await state.get_data()
+    view_mode = data.get("view_mode", False)
+
+    if view_mode:
+        # View schedule mode — show schedule with management buttons
+        await state.update_data(view_mode=False)
+        async with get_db() as session:
+            user_id = await _get_user_id(callback.from_user.id, session)
+            if user_id is not None:
+                await lazy_generate_for_range(user_id, selected, days=7)
+
+        await _show_schedule(
+            telegram_id=callback.from_user.id,
+            target=callback.message,
+            schedule_date=selected,
+            state=state,
+            show_management_buttons=True,
+        )
+        return
+
+    # Normal mode — add task or view schedule for day
     await state.update_data(task_date=iso_date)
     await state.set_state(NewTaskFSM.select_date)
     await callback.message.edit_text(
@@ -168,14 +204,28 @@ async def select_day(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("task:add:"))
 async def add_task_prompt_title(callback: CallbackQuery, state: FSMContext) -> None:
-    """Start entering a task title for the given date."""
+    """Show schedule for the selected date then prompt for task title."""
     await callback.answer()
     iso_date = callback.data.split(":", 2)[2]
     selected = date.fromisoformat(iso_date)
-    await state.update_data(task_date=selected.isoformat())
+    await state.update_data(task_date=selected.isoformat(), view_mode=False)
+
+    # Show schedule first (read-only), then prompt for title.
+    # NOTE: _show_schedule calls state.clear() internally, so we must
+    # re-store FSM data after it.
+    await _show_schedule(
+        telegram_id=callback.from_user.id,
+        target=callback.message,
+        schedule_date=selected,
+        state=state,
+        show_management_buttons=False,
+    )
+
+    await state.update_data(task_date=selected.isoformat(), view_mode=False)
     await state.set_state(NewTaskFSM.title)
     await callback.message.answer(
         "📝 Введите название задачи (от 1 до 200 символов):",
+        reply_markup=get_cancel_input_keyboard(),
     )
 
 
@@ -192,6 +242,7 @@ async def process_task_title(message: Message, state: FSMContext) -> None:
     if not title or len(title) > 200:
         await message.answer(
             "⚠️ Название должно содержать от 1 до 200 символов. Попробуйте ещё раз:",
+            reply_markup=get_cancel_input_keyboard(),
         )
         return
 
@@ -215,7 +266,7 @@ async def process_task_start_time(callback: CallbackQuery, state: FSMContext) ->
     await callback.answer()
 
     if callback.data == "time:null":
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⚠️ Для времени начала необходимо выбрать конкретное время.",
         )
         return
@@ -225,7 +276,7 @@ async def process_task_start_time(callback: CallbackQuery, state: FSMContext) ->
         hour, minute = map(int, time_str.split(":"))
         start_time = time(hour, minute)
     except (ValueError, IndexError):
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
         )
         return
@@ -233,7 +284,7 @@ async def process_task_start_time(callback: CallbackQuery, state: FSMContext) ->
     await state.update_data(task_start_time=start_time.isoformat(timespec="minutes"))
     await state.set_state(NewTaskFSM.end_time)
 
-    await callback.message.answer(
+    await callback.message.edit_text(
         "⏰ Выберите время окончания задачи:",
         reply_markup=get_time_selection_keyboard(
             min_time=start_time, show_null_option=True
@@ -265,13 +316,13 @@ async def process_task_end_time(callback: CallbackQuery, state: FSMContext) -> N
         hour, minute = map(int, time_str.split(":"))
         end_time = time(hour, minute)
     except (ValueError, IndexError):
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
         )
         return
 
     if start_time is not None and end_time <= start_time:
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⚠️ Время окончания должно быть позже времени начала. "
             "Выберите другое время:",
             reply_markup=get_time_selection_keyboard(
@@ -309,7 +360,7 @@ async def _show_task_confirm(
         f"⏰ Время: {time_display}"
     )
 
-    await target.message.answer(summary, reply_markup=get_task_confirm_keyboard())
+    await target.message.edit_text(summary, reply_markup=get_task_confirm_keyboard())
 
 
 # ===========================================================================
@@ -329,7 +380,7 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
     end_str: str | None = data.get("task_end_time")
 
     if not task_date_str or not task_title or not start_str:
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⚠️ Произошла ошибка. Не хватает данных. "
             "Начните создание задачи заново.",
             reply_markup=get_main_menu_keyboard(),
@@ -346,7 +397,7 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
     async with get_db() as session:
         user_id = await _get_user_id(telegram_id, session)
         if user_id is None:
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Пользователь не найден. Используйте /start для регистрации.",
                 reply_markup=get_main_menu_keyboard(),
             )
@@ -358,7 +409,7 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
             session, user_id, task_date, new_start_time, new_end_time
         ):
             await state.set_state(ConflictFSM.choose_action)
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Обнаружен конфликт по времени!\n"
                 "На выбранную дату и время уже есть задача.\n\n"
                 "Выберите действие:",
@@ -379,6 +430,7 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
         target=callback.message,
         schedule_date=task_date,
         state=state,
+        edit=False,
     )
 
 
@@ -441,6 +493,7 @@ async def conflict_edit_task(callback: CallbackQuery, state: FSMContext) -> None
     await state.set_state(NewTaskFSM.title)
     await callback.message.answer(
         "📝 Введите новое название задачи (от 1 до 200 символов):",
+        reply_markup=get_cancel_input_keyboard(),
     )
 
 
@@ -463,7 +516,7 @@ async def _conflict_save_and_show(
     async with get_db() as session:
         user_id = await _get_user_id(telegram_id, session)
         if user_id is None:
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Пользователь не найден. Используйте /start для регистрации.",
                 reply_markup=get_main_menu_keyboard(),
             )
@@ -484,6 +537,7 @@ async def _conflict_save_and_show(
         target=callback.message,
         schedule_date=task_date,
         state=state,
+        edit=False,
     )
 
 
@@ -526,7 +580,7 @@ async def manage_task(callback: CallbackQuery, state: FSMContext) -> None:
     async with get_db() as session:
         user_id = await _get_user_id(callback.from_user.id, session)
         if user_id is None:
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Пользователь не найден. Используйте /start для регистрации.",
                 reply_markup=get_main_menu_keyboard(),
             )
@@ -560,7 +614,7 @@ async def manage_task(callback: CallbackQuery, state: FSMContext) -> None:
     )
     await state.set_state(EditTaskFSM.choose_action)
 
-    await callback.message.answer(
+    await callback.message.edit_text(
         f"Управление задачей «{task.title}»:\n"
         f"📅 {task.date.isoformat()} | "
         f"⏰ {task.start_time.strftime('%H:%M')}"
@@ -585,7 +639,7 @@ async def confirm_delete_task(callback: CallbackQuery, state: FSMContext) -> Non
     async with get_db() as session:
         user_id = await _get_user_id(callback.from_user.id, session)
         if user_id is None:
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Пользователь не найден. Используйте /start для регистрации.",
                 reply_markup=get_main_menu_keyboard(),
             )
@@ -600,7 +654,7 @@ async def confirm_delete_task(callback: CallbackQuery, state: FSMContext) -> Non
         task_title = task.title
 
     await state.update_data(delete_task_date=task_date)
-    await callback.message.answer(
+    await callback.message.edit_text(
         f"Вы уверены, что хотите удалить задачу «{task_title}» "
         f"на {task_date}?",
         reply_markup=get_task_delete_confirmation_keyboard(task_id),
@@ -621,7 +675,7 @@ async def execute_delete_task(callback: CallbackQuery, state: FSMContext) -> Non
     async with get_db() as session:
         user_id = await _get_user_id(callback.from_user.id, session)
         if user_id is None:
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Пользователь не найден.",
                 reply_markup=get_main_menu_keyboard(),
             )
@@ -643,6 +697,7 @@ async def execute_delete_task(callback: CallbackQuery, state: FSMContext) -> Non
         target=callback.message,
         schedule_date=task_date,
         state=state,
+        edit=False,
     )
 
 
@@ -660,7 +715,7 @@ async def start_edit_task(callback: CallbackQuery, state: FSMContext) -> None:
     async with get_db() as session:
         user_id = await _get_user_id(callback.from_user.id, session)
         if user_id is None:
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Пользователь не найден.",
                 reply_markup=get_main_menu_keyboard(),
             )
@@ -684,7 +739,7 @@ async def start_edit_task(callback: CallbackQuery, state: FSMContext) -> None:
         )
 
     await state.set_state(EditTaskFSM.edit_field)
-    await callback.message.answer(
+    await callback.message.edit_text(
         "Что вы хотите изменить в задаче?",
         reply_markup=get_edit_task_field_keyboard(),
     )
@@ -704,6 +759,7 @@ async def edit_task_title_prompt(callback: CallbackQuery, state: FSMContext) -> 
     await state.set_state(EditTaskFSM.edit_title)
     await callback.message.answer(
         "📝 Введите новое название (от 1 до 200 символов):",
+        reply_markup=get_cancel_input_keyboard(),
     )
 
 
@@ -715,7 +771,7 @@ async def edit_task_date_prompt(callback: CallbackQuery, state: FSMContext) -> N
     await callback.answer()
     await state.set_state(EditTaskFSM.edit_date)
     today = date.today()
-    await callback.message.answer(
+    await callback.message.edit_text(
         "📅 Выберите новую дату:",
         reply_markup=get_month_calendar_keyboard(today.year, today.month),
     )
@@ -730,7 +786,7 @@ async def edit_task_start_time_prompt(
     """Show the time keyboard to select a new start time."""
     await callback.answer()
     await state.set_state(EditTaskFSM.edit_start_time)
-    await callback.message.answer(
+    await callback.message.edit_text(
         "🕐 Выберите новое время начала:",
         reply_markup=get_time_selection_keyboard(),
     )
@@ -752,7 +808,7 @@ async def edit_task_end_time_prompt(
     # Mark that the user is manually changing end_time
     await state.update_data(end_time_manually_set=True)
     await state.set_state(EditTaskFSM.edit_end_time)
-    await callback.message.answer(
+    await callback.message.edit_text(
         "🕐 Выберите новое время окончания:",
         reply_markup=get_time_selection_keyboard(
             min_time=min_time, show_null_option=True,
@@ -773,6 +829,7 @@ async def apply_edit_task_title(message: Message, state: FSMContext) -> None:
     if not title or len(title) > 200:
         await message.answer(
             "⚠️ Название должно содержать от 1 до 200 символов. Попробуйте ещё раз:",
+            reply_markup=get_cancel_input_keyboard(),
         )
         return
 
@@ -801,7 +858,7 @@ async def apply_edit_task_date(callback: CallbackQuery, state: FSMContext) -> No
 
     await state.update_data(pending_date=selected.isoformat())
     await state.set_state(EditTaskFSM.edit_field)
-    await callback.message.answer(
+    await callback.message.edit_text(
         f"✅ Дата изменена на {selected.isoformat()}.\n"
         "Что вы хотите изменить в задаче?",
         reply_markup=get_edit_task_field_keyboard(),
@@ -827,7 +884,7 @@ async def apply_edit_task_start_time(
         hour, minute = map(int, time_str.split(":"))
         new_start_time = time(hour, minute)
     except (ValueError, IndexError):
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
         )
         return
@@ -862,7 +919,7 @@ async def apply_edit_task_start_time(
         # Check bounds: end must be <= 23:59
         max_end = timedelta(hours=23, minutes=59)
         if new_dt_end > max_end:
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Выход за границы дня. "
                 "Новое время окончания превышает 23:59.\n"
                 "Пожалуйста, выберите более раннее время начала "
@@ -880,7 +937,7 @@ async def apply_edit_task_start_time(
         )
 
         await state.set_state(EditTaskFSM.edit_field)
-        await callback.message.answer(
+        await callback.message.edit_text(
             f"✅ Время начала изменено на {new_start_time.strftime('%H:%M')}.\n"
             f"Время окончания автоматически сдвинуто на "
             f"{new_end_time.strftime('%H:%M')}.\n\n"
@@ -895,7 +952,7 @@ async def apply_edit_task_start_time(
     )
 
     await state.set_state(EditTaskFSM.edit_field)
-    await callback.message.answer(
+    await callback.message.edit_text(
         f"✅ Время начала изменено на {new_start_time.strftime('%H:%M')}.\n"
         "Что вы хотите изменить в задаче?",
         reply_markup=get_edit_task_field_keyboard(),
@@ -923,7 +980,7 @@ async def apply_edit_task_end_time(
     if callback.data == "time:null":
         await state.update_data(pending_end_time=None)
         await state.set_state(EditTaskFSM.edit_field)
-        await callback.message.answer(
+        await callback.message.edit_text(
             "✅ Время окончания сброшено (без ограничения).\n"
             "Что вы хотите изменить в задаче?",
             reply_markup=get_edit_task_field_keyboard(),
@@ -935,13 +992,13 @@ async def apply_edit_task_end_time(
         hour, minute = map(int, time_str.split(":"))
         new_end_time = time(hour, minute)
     except (ValueError, IndexError):
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
         )
         return
 
     if start_time is not None and new_end_time <= start_time:
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⚠️ Время окончания должно быть позже времени начала. "
             "Выберите другое время:",
             reply_markup=get_time_selection_keyboard(
@@ -954,7 +1011,7 @@ async def apply_edit_task_end_time(
         pending_end_time=new_end_time.isoformat(timespec="minutes"),
     )
     await state.set_state(EditTaskFSM.edit_field)
-    await callback.message.answer(
+    await callback.message.edit_text(
         f"✅ Время окончания изменено на {new_end_time.strftime('%H:%M')}.\n"
         "Что вы хотите изменить в задаче?",
         reply_markup=get_edit_task_field_keyboard(),
@@ -975,7 +1032,7 @@ async def reset_task_to_habit(callback: CallbackQuery, state: FSMContext) -> Non
     async with get_db() as session:
         user_id = await _get_user_id(callback.from_user.id, session)
         if user_id is None:
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Пользователь не найден.",
                 reply_markup=get_main_menu_keyboard(),
             )
@@ -1014,7 +1071,7 @@ async def reset_task_to_habit(callback: CallbackQuery, state: FSMContext) -> Non
         is_modified = False
 
     await state.set_state(EditTaskFSM.choose_action)
-    await callback.message.answer(
+    await callback.message.edit_text(
         f"🔄 Время задачи «{task.title}» сброшено к шаблону привычки.\n\n"
         f"Управление задачей «{task.title}»:",
         reply_markup=get_task_management_keyboard(
@@ -1041,7 +1098,7 @@ async def confirm_edit_changes(callback: CallbackQuery, state: FSMContext) -> No
     pending_end_str: str | None = data.get("pending_end_time")
 
     if not task_id or not pending_title or not pending_date_str or not pending_start_str:
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⚠️ Не хватает данных. Редактирование отменено.",
             reply_markup=get_main_menu_keyboard(),
         )
@@ -1057,7 +1114,7 @@ async def confirm_edit_changes(callback: CallbackQuery, state: FSMContext) -> No
     async with get_db() as session:
         user_id = await _get_user_id(telegram_id, session)
         if user_id is None:
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Пользователь не найден.",
                 reply_markup=get_main_menu_keyboard(),
             )
@@ -1088,7 +1145,7 @@ async def confirm_edit_changes(callback: CallbackQuery, state: FSMContext) -> No
                 task_start_time=pending_start_str,
                 task_end_time=pending_end_str,
             )
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Обнаружен конфликт по времени!\n"
                 "На выбранную дату и время уже есть другая задача.\n\n"
                 "Выберите действие:",
@@ -1114,6 +1171,7 @@ async def confirm_edit_changes(callback: CallbackQuery, state: FSMContext) -> No
         target=callback.message,
         schedule_date=pending_date,
         state=state,
+        edit=False,
     )
 
 
@@ -1157,7 +1215,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         if data.get("edit_task_id"):
             # Came from edit flow — go back to confirm_changes equivalent
             await state.set_state(EditTaskFSM.edit_field)
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "Что вы хотите изменить в задаче?",
                 reply_markup=get_edit_task_field_keyboard(),
             )
@@ -1179,7 +1237,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
                 f"📝 Название: {task_title}\n"
                 f"⏰ Время: {time_display}"
             )
-            await callback.message.answer(summary, reply_markup=get_task_confirm_keyboard())
+            await callback.message.edit_text(summary, reply_markup=get_task_confirm_keyboard())
             return
 
     # --- EditTaskFSM back navigation ---
@@ -1217,7 +1275,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
                             )
 
         await state.set_state(EditTaskFSM.choose_action)
-        await callback.message.answer(
+        await callback.message.edit_text(
             f"Управление задачей «{task.title if task else '...'}»:",
             reply_markup=get_task_management_keyboard(
                 task_id=task_id,
@@ -1234,7 +1292,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         EditTaskFSM.edit_end_time.state,
     ):
         await state.set_state(EditTaskFSM.edit_field)
-        await callback.message.answer(
+        await callback.message.edit_text(
             "Что вы хотите изменить в задаче?",
             reply_markup=get_edit_task_field_keyboard(),
         )
@@ -1246,7 +1304,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         data = await state.get_data()
         iso = data.get("task_date", date.today().isoformat())
         target_date = date.fromisoformat(iso)
-        await callback.message.answer(
+        await callback.message.edit_text(
             "📅 Выберите дату для задачи:",
             reply_markup=get_month_calendar_keyboard(
                 target_date.year, target_date.month
@@ -1258,12 +1316,13 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(NewTaskFSM.title)
         await callback.message.answer(
             "📝 Введите название задачи (от 1 до 200 символов):",
+            reply_markup=get_cancel_input_keyboard(),
         )
         return
 
     if current_state == NewTaskFSM.end_time.state:
         await state.set_state(NewTaskFSM.start_time)
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⏰ Выберите время начала задачи:",
             reply_markup=get_time_selection_keyboard(),
         )
@@ -1274,7 +1333,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         fsm_data = await state.get_data()
         st_str = fsm_data.get("task_start_time")
         st = time.fromisoformat(st_str) if st_str else None
-        await callback.message.answer(
+        await callback.message.edit_text(
             "⏰ Выберите время окончания задачи:",
             reply_markup=get_time_selection_keyboard(
                 min_time=st, show_null_option=True
@@ -1285,7 +1344,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
     if current_state == NewTaskFSM.select_date.state:
         await state.clear()
         await state.set_state(MainFSM.main_menu)
-        await callback.message.answer(
+        await callback.message.edit_text(
             "🏠 Главное меню бота\nВыберите действие:",
             reply_markup=get_main_menu_keyboard(),
         )
@@ -1307,9 +1366,27 @@ async def handle_task_cancel(callback: CallbackQuery, state: FSMContext) -> None
 
     await state.clear()
     await state.set_state(MainFSM.main_menu)
-    await callback.message.answer(
+    await callback.message.edit_text(
         "❌ Действие отменено.",
         reply_markup=get_main_menu_keyboard(),
+    )
+
+
+# ===========================================================================
+# "📅 Посмотреть расписание" — calendar-based schedule viewer
+# ===========================================================================
+
+
+@router.callback_query(F.data == "main_menu:view_schedule")
+async def view_schedule_from_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    """Open the calendar so the user can pick a date and view its schedule."""
+    await callback.answer()
+    await state.update_data(view_mode=True)
+    today = date.today()
+    await state.set_state(NewTaskFSM.select_date)
+    await callback.message.edit_text(
+        "📅 Выберите дату для просмотра расписания:",
+        reply_markup=get_month_calendar_keyboard(today.year, today.month),
     )
 
 
@@ -1338,7 +1415,7 @@ async def today_tasks(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 # ===========================================================================
-# "Отметить выполненные задачи за сегодня" — toggle-completion mode
+# "Отметить выполненные дела" — toggle-completion mode
 # ===========================================================================
 
 
@@ -1353,7 +1430,7 @@ async def complete_tasks_mode(callback: CallbackQuery, state: FSMContext) -> Non
     async with get_db() as session:
         user_id = await _get_user_id(callback.from_user.id, session)
         if user_id is None:
-            await callback.message.answer(
+            await callback.message.edit_text(
                 "⚠️ Пользователь не найден. Используйте /start для регистрации.",
                 reply_markup=get_main_menu_keyboard(),
             )
@@ -1370,13 +1447,13 @@ async def complete_tasks_mode(callback: CallbackQuery, state: FSMContext) -> Non
         tasks = result.scalars().all()
 
     if not tasks:
-        await callback.message.answer(
+        await callback.message.edit_text(
             "На сегодня задач нет.",
             reply_markup=get_main_menu_keyboard(),
         )
         return
 
-    await callback.message.answer(
+    await callback.message.edit_text(
         "📅 Отметьте выполненные задачи:",
         reply_markup=get_tasks_completion_keyboard(tasks),
     )

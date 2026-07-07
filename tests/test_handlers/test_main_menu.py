@@ -48,8 +48,8 @@ async def test_main_menu_button_count(
     """Verify that the main menu has exactly 8 buttons."""
 
     assert (
-        len(MAIN_MENU_BUTTONS) == 8
-    ), f"Expected 8 main menu buttons, got {len(MAIN_MENU_BUTTONS)}"
+        len(MAIN_MENU_BUTTONS) == 9
+    ), f"Expected 9 main menu buttons, got {len(MAIN_MENU_BUTTONS)}"
 
 
 @pytest.mark.asyncio
