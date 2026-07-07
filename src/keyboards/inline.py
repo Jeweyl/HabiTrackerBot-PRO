@@ -139,3 +139,50 @@ def get_frequency_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 2)  # 3 frequency rows + 1 nav row
     return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Edit field selection keyboard — used in the Habit editing flow
+# ---------------------------------------------------------------------------
+
+
+def get_edit_field_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for selecting which habit field to edit.
+
+    Returns:
+        InlineKeyboardMarkup with 4 field buttons + cancel, one per row.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📝 Название", callback_data="edit_field:title")
+    builder.button(text="🕐 Время начала", callback_data="edit_field:start_time")
+    builder.button(text="🕐 Время окончания", callback_data="edit_field:end_time")
+    builder.button(text="📅 Частота", callback_data="edit_field:frequency")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(1, 1, 1, 1, 1)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Delete confirmation keyboard — used in the Habit deletion flow
+# ---------------------------------------------------------------------------
+
+
+def get_delete_confirmation_keyboard(
+    habit_id: int,
+) -> InlineKeyboardMarkup:
+    """Build an inline keyboard for confirming habit deletion.
+
+    Args:
+        habit_id: ID of the habit to be deleted.
+
+    Returns:
+        InlineKeyboardMarkup with confirm / cancel buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Подтвердить",
+        callback_data=f"habit:confirm_delete:{habit_id}",
+    )
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(2)
+    return builder.as_markup()

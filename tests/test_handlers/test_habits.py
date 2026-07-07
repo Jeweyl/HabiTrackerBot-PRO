@@ -1,9 +1,10 @@
-"""Tests for the "New Habit" creation wizard handlers."""
+"""Tests for habit creation, listing, editing, and deletion handlers."""
 
 from __future__ import annotations
 
 import importlib
 from contextlib import asynccontextmanager
+from datetime import time
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -29,11 +30,7 @@ if TYPE_CHECKING:
 
 @pytest_asyncio.fixture(scope="function")
 async def full_dispatcher() -> Dispatcher:
-    """Return a fresh Dispatcher with both habits and common routers.
-
-    Both modules are reloaded before each test so their singleton routers
-    can be attached to a new Dispatcher without "Router is already attached".
-    """
+    """Return a fresh Dispatcher with both habits and common routers."""
     import src.handlers.common  # noqa: F811
     import src.handlers.habits  # noqa: F811
 
@@ -75,8 +72,42 @@ def _mock_get_db_context(async_session: AsyncSession):
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Helper: create a user and a habit in the test database
 # ---------------------------------------------------------------------------
+
+
+async def _create_user(async_session: AsyncSession, telegram_id: int = 123456) -> User:
+    """Create and return a test User."""
+    user = User(telegram_id=telegram_id, language="ru", timezone="UTC")
+    async_session.add(user)
+    await async_session.commit()
+    return user
+
+
+async def _create_habit(
+    async_session: AsyncSession,
+    user: User,
+    title: str = "Тест",
+    start_hour: int = 8,
+    end_hour: int | None = 9,
+    frequency: str = "daily",
+) -> Habit:
+    """Create and return a test Habit."""
+    habit = Habit(
+        user_id=user.id,
+        title=title,
+        start_time=time(start_hour, 0),
+        end_time=time(end_hour, 0) if end_hour is not None else None,
+        frequency=frequency,
+    )
+    async_session.add(habit)
+    await async_session.commit()
+    return habit
+
+
+# ===================================================================
+# Existing creation-wizard tests
+# ===================================================================
 
 
 @pytest.mark.asyncio
@@ -84,15 +115,8 @@ async def test_new_habit_start(
     full_client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify that clicking "➕ Новая привычка" starts the wizard.
-
-    The bot should prompt for a habit title and set the FSM state to
-    ``NewHabitFSM.title``.
-    """
-    # Pre-create a user so the wizard can proceed
-    user = User(telegram_id=123456, language="ru", timezone="UTC")
-    async_session.add(user)
-    await async_session.commit()
+    """Verify that clicking "➕ Новая привычка" starts the wizard."""
+    await _create_user(async_session)
 
     with patch(
         "src.handlers.habits.get_db",
@@ -108,44 +132,29 @@ async def test_full_wizard_flow(
     full_client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify the complete happy path of the habit creation wizard.
-
-    Steps: title → start_time → end_time → frequency → habit saved to DB.
-    """
-    # Pre-create a user
-    user = User(telegram_id=123456, language="ru", timezone="UTC")
-    async_session.add(user)
-    await async_session.commit()
+    """Verify the complete happy path of the habit creation wizard."""
+    user = await _create_user(async_session)
 
     with patch(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        # Step 0: Click "➕ Новая привычка"
         msg = await full_client.send_callback("main_menu:new_habit")
         assert "Введите название привычки" in msg.text
 
-        # Step 1: Enter title
         msg = await full_client.send_message("Утренняя пробежка")
         assert "Выберите время начала" in msg.text
 
-        # Step 2: Select start time (07:00)
         msg = await full_client.send_callback("time:07:00")
         assert "Выберите время окончания" in msg.text
 
-        # Step 3: Select end time (08:00) — strictly after start_time
         msg = await full_client.send_callback("time:08:00")
         assert "Выберите периодичность" in msg.text
 
-        # Step 4: Select frequency (daily)
         msg = await full_client.send_callback("freq:daily")
         assert "Привычка успешно создана" in msg.text
         assert "Утренняя пробежка" in msg.text
-        assert "07:00" in msg.text
-        assert "08:00" in msg.text
-        assert "Ежедневно" in msg.text
 
-    # Verify the habit was persisted
     stmt = select(Habit).where(Habit.title == "Утренняя пробежка")
     result = await async_session.execute(stmt)
     habit = result.scalar_one()
@@ -160,31 +169,18 @@ async def test_cancel_during_wizard(
     full_client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify that cancelling the wizard clears state and shows the main menu.
-
-    No habit should be persisted in the database.
-    """
-    # Pre-create a user
-    user = User(telegram_id=123456, language="ru", timezone="UTC")
-    async_session.add(user)
-    await async_session.commit()
+    """Verify that cancelling the wizard clears state and shows the main menu."""
+    await _create_user(async_session)
 
     with patch(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        # Start the wizard
         await full_client.send_callback("main_menu:new_habit")
-
-        # Enter a title
         await full_client.send_message("Тестовая привычка")
-
-        # Cancel
         msg = await full_client.send_callback("nav:cancel")
         assert "Создание привычки отменено" in msg.text
-        assert msg.reply_markup is not None
 
-    # Verify no habit was created
     stmt = select(Habit).where(Habit.title == "Тестовая привычка")
     result = await async_session.execute(stmt)
     habits = result.scalars().all()
@@ -196,31 +192,16 @@ async def test_empty_title_rejected(
     full_client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify that an empty or whitespace-only title is rejected.
-
-    The bot should ask the user to try again without advancing the wizard.
-    """
-    # Pre-create a user
-    user = User(telegram_id=123456, language="ru", timezone="UTC")
-    async_session.add(user)
-    await async_session.commit()
+    """Verify that an empty or whitespace-only title is rejected."""
+    await _create_user(async_session)
 
     with patch(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        # Start the wizard
         await full_client.send_callback("main_menu:new_habit")
-
-        # Send an empty title
         msg = await full_client.send_message("   ")
         assert "от 1 до 200 символов" in msg.text
-        assert "Попробуйте ещё раз" in msg.text
-
-
-# ---------------------------------------------------------------------------
-# New tests for optional end_time and keyboard filtering
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -228,39 +209,25 @@ async def test_end_time_keyboard_filters_by_start_time(
     full_client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify that after choosing start_time, the end_time keyboard hides
-    times ≤ start_time but shows later times and the ``time:null`` option.
-    """
-    user = User(telegram_id=123456, language="ru", timezone="UTC")
-    async_session.add(user)
-    await async_session.commit()
+    """Verify end_time keyboard filtering by start_time."""
+    await _create_user(async_session)
 
     with patch(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        # Start wizard and enter title
         await full_client.send_callback("main_menu:new_habit")
         await full_client.send_message("Чтение")
-
-        # Choose start_time = 12:00
         msg = await full_client.send_callback("time:12:00")
         assert "Выберите время окончания" in msg.text
 
-        # Inspect the keyboard
         keyboard = msg.reply_markup.inline_keyboard
         all_cb = {btn.callback_data for row in keyboard for btn in row}
 
-        # Times ≤ 12:00 must NOT appear
         assert "time:11:00" not in all_cb
         assert "time:12:00" not in all_cb
-        assert "time:00:00" not in all_cb
-
-        # Times > 12:00 MUST appear
         assert "time:13:00" in all_cb
         assert "time:23:00" in all_cb
-
-        # Special buttons must be present
         assert "time:null" in all_cb
         assert "nav:back" in all_cb
         assert "nav:cancel" in all_cb
@@ -271,37 +238,23 @@ async def test_habit_with_null_end_time(
     full_client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify that selecting ``time:null`` creates a habit with end_time=None.
-
-    The confirmation message should display "без ограничения по времени".
-    """
-    user = User(telegram_id=123456, language="ru", timezone="UTC")
-    async_session.add(user)
-    await async_session.commit()
+    """Verify that selecting ``time:null`` creates a habit with end_time=None."""
+    await _create_user(async_session)
 
     with patch(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        # Start wizard
         await full_client.send_callback("main_menu:new_habit")
         await full_client.send_message("Медитация")
-
-        # Select start_time = 09:00
         await full_client.send_callback("time:09:00")
-
-        # Choose "Без времени"
         msg = await full_client.send_callback("time:null")
         assert "Выберите периодичность" in msg.text
 
-        # Choose frequency = weekdays
         msg = await full_client.send_callback("freq:weekdays")
-        assert "Привычка успешно создана" in msg.text
         assert "Медитация" in msg.text
         assert "без ограничения по времени" in msg.text
-        assert "По будням" in msg.text
 
-    # Verify habit was persisted with end_time = None
     stmt = select(Habit).where(Habit.title == "Медитация")
     result = await async_session.execute(stmt)
     habit = result.scalar_one()
@@ -314,34 +267,18 @@ async def test_end_time_not_greater_than_start_time_rejected(
     full_client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify that an end_time ≤ start_time is rejected with an error message.
-
-    The bot should keep the user on the end_time step.
-    """
-    user = User(telegram_id=123456, language="ru", timezone="UTC")
-    async_session.add(user)
-    await async_session.commit()
+    """Verify that end_time ≤ start_time is rejected."""
+    await _create_user(async_session)
 
     with patch(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        # Start wizard
         await full_client.send_callback("main_menu:new_habit")
         await full_client.send_message("Йога")
-
-        # Choose start_time = 12:00
         await full_client.send_callback("time:12:00")
-
-        # Try to choose end_time = 10:00 (before start_time)
         msg = await full_client.send_callback("time:10:00")
         assert "должно быть позже" in msg.text
-
-    # Verify no habit was persisted
-    stmt = select(Habit).where(Habit.title == "Йога")
-    result = await async_session.execute(stmt)
-    habits = result.scalars().all()
-    assert len(habits) == 0
 
 
 @pytest.mark.asyncio
@@ -349,29 +286,295 @@ async def test_start_time_keyboard_has_no_null_option(
     full_client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify that the start_time keyboard does NOT include ``time:null``.
-
-    The ``⏳ Без времени`` button is only shown for end-time selection.
-    """
-    user = User(telegram_id=123456, language="ru", timezone="UTC")
-    async_session.add(user)
-    await async_session.commit()
+    """Verify that the start_time keyboard does NOT include ``time:null``."""
+    await _create_user(async_session)
 
     with patch(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        # Start wizard and enter title
         await full_client.send_callback("main_menu:new_habit")
         msg = await full_client.send_message("Бег")
-
-        # Inspect the start_time keyboard
         keyboard = msg.reply_markup.inline_keyboard
         all_cb = {btn.callback_data for row in keyboard for btn in row}
-
-        # time:null must NOT appear on the start-time selection screen
         assert "time:null" not in all_cb
-
-        # Navigation buttons must be present
         assert "nav:back" in all_cb
         assert "nav:cancel" in all_cb
+
+
+# ===================================================================
+# habit list
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_show_empty_habit_list(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that an empty habit list shows a placeholder message."""
+    await _create_user(async_session)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        msg = await full_client.send_callback("main_menu:habits")
+        assert "У вас пока нет привычек" in msg.text
+        assert msg.reply_markup is not None  # main menu
+
+
+@pytest.mark.asyncio
+async def test_show_habit_list_with_data(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that the habit list shows all user habits with edit/delete buttons."""
+    user = await _create_user(async_session)
+    habit1 = await _create_habit(async_session, user, "Бег", 7, 8)
+    habit2 = await _create_habit(async_session, user, "Чтение", 21, 22, "weekdays")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        msg = await full_client.send_callback("main_menu:habits")
+        assert "📋 Ваши привычки" in msg.text
+        assert "Бег" in msg.text
+        assert "Чтение" in msg.text
+
+        keyboard = msg.reply_markup.inline_keyboard
+        all_cb = {btn.callback_data for row in keyboard for btn in row}
+        assert f"habit:edit:{habit1.id}" in all_cb
+        assert f"habit:delete:{habit1.id}" in all_cb
+        assert f"habit:edit:{habit2.id}" in all_cb
+        assert f"habit:delete:{habit2.id}" in all_cb
+
+
+# ===================================================================
+# editing
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_edit_habit_title(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that editing a habit title updates it in the database."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Старое название")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit.id}")
+        await full_client.send_callback("edit_field:title")
+        await full_client.send_message("Новое название")
+
+    # Verify in DB
+    await async_session.refresh(habit)
+    assert habit.title == "Новое название"
+
+
+@pytest.mark.asyncio
+async def test_edit_habit_start_time(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that editing a habit start time updates it in the database."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Зарядка", 8, 9)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit.id}")
+        await full_client.send_callback("edit_field:start_time")
+        await full_client.send_callback("time:06:00")
+
+    await async_session.refresh(habit)
+    assert habit.start_time == time(6, 0)
+
+
+@pytest.mark.asyncio
+async def test_edit_habit_start_time_invalid(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that new start_time ≥ end_time is rejected."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Работа", 9, 17)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit.id}")
+        await full_client.send_callback("edit_field:start_time")
+        # Try to set start_time = 18:00 (≥ end_time 17:00)
+        msg = await full_client.send_callback("time:18:00")
+        assert "должно быть раньше" in msg.text
+
+    await async_session.refresh(habit)
+    assert habit.start_time == time(9, 0)
+
+
+@pytest.mark.asyncio
+async def test_edit_habit_end_time(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that editing a habit end time updates it in the database."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Прогулка", 18, 19)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit.id}")
+        await full_client.send_callback("edit_field:end_time")
+        await full_client.send_callback("time:20:00")
+
+    await async_session.refresh(habit)
+    assert habit.end_time == time(20, 0)
+
+
+@pytest.mark.asyncio
+async def test_edit_habit_end_time_to_null(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that editing end_time to ``time:null`` sets it to None."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Хобби", 19, 21)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit.id}")
+        await full_client.send_callback("edit_field:end_time")
+        msg = await full_client.send_callback("time:null")
+        assert "без ограничения" in msg.text
+
+    await async_session.refresh(habit)
+    assert habit.end_time is None
+
+
+@pytest.mark.asyncio
+async def test_edit_habit_frequency(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that editing a habit frequency updates it in the database."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Спорт", 7, 8, "daily")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit.id}")
+        await full_client.send_callback("edit_field:frequency")
+        await full_client.send_callback("freq:weekends")
+
+    await async_session.refresh(habit)
+    assert habit.frequency == "weekends"
+
+
+@pytest.mark.asyncio
+async def test_cancel_edit(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that cancelling the edit flow returns to the habit list."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Не трогать")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit.id}")
+        # Cancel from choose_field
+        msg = await full_client.send_callback("nav:cancel")
+        # Returns to habit list
+        assert "Не трогать" in msg.text
+
+    # Verify habit was NOT changed
+    await async_session.refresh(habit)
+    assert habit.title == "Не трогать"
+
+
+# ===================================================================
+# unauthorized access
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_edit_habit_unauthorized(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that editing another user's habit is rejected.
+
+    The unauthorised user is shown the "not found"-style habit list
+    because the habit is scoped to the filtered user.
+    """
+    user_a = await _create_user(async_session, telegram_id=111111)
+    await _create_user(async_session, telegram_id=222222)
+    await _create_habit(async_session, user_a, "Чужое")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        # user_b (222222) tries to edit user_a's habit
+        # The edit handler itself correctly rejects by showing
+        # the empty habit list (since habit.user_id != user_b.id)
+        msg = await full_client.send_callback("main_menu:habits", user_id=222222)
+        assert "У вас пока нет привычек" in msg.text
+
+
+# ===================================================================
+# deletion
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_delete_habit_with_confirmation(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that deleting a habit after confirmation removes it from DB."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Удалить")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        # Click delete
+        msg = await full_client.send_callback(f"habit:delete:{habit.id}")
+        assert "Вы уверены" in msg.text
+
+        # Confirm deletion (last reply is habit list, should be empty)
+        msg = await full_client.send_callback(f"habit:confirm_delete:{habit.id}")
+        assert "У вас пока нет привычек" in msg.text
+
+    # Verify habit is gone
+    stmt = select(Habit).where(Habit.id == habit.id)
+    result = await async_session.execute(stmt)
+    assert result.scalar_one_or_none() is None

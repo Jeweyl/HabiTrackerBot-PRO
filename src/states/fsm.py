@@ -27,3 +27,23 @@ class NewHabitFSM(StatesGroup):
     start_time = State()
     end_time = State()
     frequency = State()
+
+
+class EditHabitFSM(StatesGroup):
+    """FSM group for editing an existing habit.
+
+    Attributes:
+        choose_field: User selects which field to edit.
+        title: User enters a new title.
+        start_time: User selects a new start time.
+        end_time: User selects a new end time.
+        frequency: User selects a new frequency.
+        confirm_delete: User confirms habit deletion.
+    """
+
+    choose_field = State()
+    title = State()
+    start_time = State()
+    end_time = State()
+    frequency = State()
+    confirm_delete = State()
