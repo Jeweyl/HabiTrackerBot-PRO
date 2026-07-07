@@ -6,6 +6,7 @@ import signal
 
 from src.bot import bot, dp
 from src.handlers.common import router as common_router
+from src.handlers.habits import router as habits_router
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ async def main() -> None:
     """
     _setup_logging()
 
+    dp.include_router(habits_router)  # Must be before common_router for priority
     dp.include_router(common_router)
 
     logger.info("Starting bot polling...")

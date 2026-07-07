@@ -1,8 +1,9 @@
 """SQLAlchemy ORM models for the application database."""
 
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
+from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, String, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Time, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -43,5 +44,37 @@ class User(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
+class Habit(Base):
+    """User habit model.
+
+    Attributes:
+        id: Primary key, auto-incremented integer.
+        user_id: Foreign key to the users table.
+        title: Habit name/title (1–200 characters).
+        start_time: Daily start time for the habit.
+        end_time: Daily end time for the habit (optional — ``None`` means no fixed end).
+        frequency: Repeat frequency — ``daily``, ``weekdays``, or ``weekends``.
+        created_at: Timestamp of record creation.
+    """
+
+    __tablename__ = "habits"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    start_time: Mapped[time] = mapped_column(Time, nullable=False)
+    end_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    frequency: Mapped[str] = mapped_column(
+        String(20), default="daily", server_default="daily"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
     )
