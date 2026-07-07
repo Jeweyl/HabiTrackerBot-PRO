@@ -65,3 +65,14 @@ class NewTaskFSM(StatesGroup):
     start_time = State()
     end_time = State()
     confirm = State()
+
+
+class ConflictFSM(StatesGroup):
+    """FSM group for resolving time conflicts when saving a task.
+
+    Attributes:
+        choose_action: User chooses how to handle the conflict
+            (force add / edit schedule / edit task / cancel).
+    """
+
+    choose_action = State()

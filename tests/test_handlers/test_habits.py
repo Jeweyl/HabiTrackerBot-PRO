@@ -45,6 +45,21 @@ async def full_dispatcher() -> Dispatcher:
     return dp
 
 
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _patch_generator_db(
+    monkeypatch,
+    async_session: AsyncSession,
+) -> None:
+    """Redirect habit_generator.get_db to the in-memory test session."""
+    @asynccontextmanager
+    async def _fake_get_db():
+        yield async_session
+
+    import src.services.habit_generator as gen_module
+
+    monkeypatch.setattr(gen_module, "get_db", _fake_get_db)
+
+
 @pytest_asyncio.fixture(scope="function")
 async def full_client(
     test_bot: Bot,

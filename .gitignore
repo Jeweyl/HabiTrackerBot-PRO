@@ -16,3 +16,4 @@ postgres_data/
 .vscode/
 *.swp
 *.swo
+/venv

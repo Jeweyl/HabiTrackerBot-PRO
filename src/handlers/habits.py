@@ -7,9 +7,9 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
-from src.db.models import Habit, User
+from src.db.models import Habit, Task, User
 from src.db.session import get_db
 from src.keyboards.inline import (
     get_delete_confirmation_keyboard,
@@ -18,6 +18,7 @@ from src.keyboards.inline import (
     get_main_menu_keyboard,
     get_time_selection_keyboard,
 )
+from src.services.habit_generator import generate_tasks_for_habit
 from src.states.fsm import EditHabitFSM, MainFSM, NewHabitFSM
 
 logger = logging.getLogger(__name__)
@@ -336,6 +337,11 @@ async def process_frequency(callback: CallbackQuery, state: FSMContext) -> None:
         )
         session.add(habit)
         await session.commit()
+        habit_id = habit.id
+
+    # Generate tasks for the next 30 days (in its own session)
+    logger.info("process_frequency: generating tasks for habit %d", habit_id)
+    await generate_tasks_for_habit(habit_id)
 
     freq_label = FREQ_LABELS.get(frequency, frequency)
 
@@ -557,6 +563,12 @@ async def apply_title_edit(message: Message, state: FSMContext) -> None:
             await session.commit()
             await message.answer(f"✅ Название изменено на «{title}».")
 
+    # Regenerate tasks for the edited habit
+    async with get_db() as session:
+        await session.execute(delete(Task).where(Task.habit_id == habit_id))
+        await session.commit()
+        await generate_tasks_for_habit(habit_id)
+
     await _show_habit_list(
         telegram_id=message.from_user.id,
         target=message,
@@ -622,6 +634,12 @@ async def apply_start_time_edit(callback: CallbackQuery, state: FSMContext) -> N
         await callback.message.answer(
             f"✅ Время начала изменено на {new_start_time.strftime('%H:%M')}."
         )
+
+    # Regenerate tasks for the edited habit
+    async with get_db() as session:
+        await session.execute(delete(Task).where(Task.habit_id == habit_id))
+        await session.commit()
+        await generate_tasks_for_habit(habit_id)
 
     await _show_habit_list(
         telegram_id=callback.from_user.id,
@@ -695,6 +713,12 @@ async def apply_end_time_edit(callback: CallbackQuery, state: FSMContext) -> Non
                 f"✅ Время окончания изменено на {new_end_time.strftime('%H:%M')}."
             )
 
+    # Regenerate tasks for the edited habit
+    async with get_db() as session:
+        await session.execute(delete(Task).where(Task.habit_id == habit_id))
+        await session.commit()
+        await generate_tasks_for_habit(habit_id)
+
     await _show_habit_list(
         telegram_id=callback.from_user.id,
         target=callback.message,
@@ -736,6 +760,12 @@ async def apply_frequency_edit(callback: CallbackQuery, state: FSMContext) -> No
             await session.commit()
             freq_label = FREQ_LABELS.get(frequency, frequency)
             await callback.message.answer(f"✅ Частота изменена на «{freq_label}».")
+
+    # Regenerate tasks for the edited habit
+    async with get_db() as session:
+        await session.execute(delete(Task).where(Task.habit_id == habit_id))
+        await session.commit()
+        await generate_tasks_for_habit(habit_id)
 
     await _show_habit_list(
         telegram_id=callback.from_user.id,

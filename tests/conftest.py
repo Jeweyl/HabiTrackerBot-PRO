@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from contextlib import asynccontextmanager
 
 from src.db.models import Base
 
@@ -131,17 +132,27 @@ async def test_bot() -> Bot:
 
 
 @pytest_asyncio.fixture(scope="function")
-async def test_dispatcher() -> Dispatcher:
+async def test_dispatcher(
+    monkeypatch,
+    async_session: AsyncSession,
+) -> Dispatcher:
     """Return a fresh Dispatcher with a fresh copy of the common router.
 
-    The ``src.handlers.common`` module is reloaded before each test so that
-    its singleton router can be attached to a new Dispatcher without raising
-    "Router is already attached".
+    Reloads ``src.handlers.common`` before each test and patches its
+    ``get_db`` to use the in-memory SQLite session.
     """
     import src.handlers.common  # noqa: F811
 
     importlib.reload(src.handlers.common)
     from src.handlers.common import router as common_router  # noqa: F811
+
+    @asynccontextmanager
+    async def _fake_get_db():
+        yield async_session
+
+    import src.handlers.common as common_module
+
+    monkeypatch.setattr(common_module, "get_db", _fake_get_db)
 
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(common_router)

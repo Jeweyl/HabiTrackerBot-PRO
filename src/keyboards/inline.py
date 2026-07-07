@@ -321,3 +321,130 @@ def get_task_confirm_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1)
     return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Task completion keyboard — one button per task with status icon
+# ---------------------------------------------------------------------------
+
+
+def get_tasks_completion_keyboard(
+    tasks: list,
+) -> InlineKeyboardMarkup:
+    """Build an inline keyboard where each task is a toggle button.
+
+    The button text includes a status icon (✅ / ⬜), the task title,
+    and the time range.  Tapping the button fires ``task:toggle:{id}``.
+
+    Args:
+        tasks: A list of ``Task`` ORM objects (must have ``id``,
+            ``title``, ``start_time``, ``end_time``, ``is_completed``).
+
+    Returns:
+        InlineKeyboardMarkup with one task button per row, plus a
+        ``🔙 Назад`` button on the last row.
+    """
+    builder = InlineKeyboardBuilder()
+    for task in tasks:
+        status = "✅" if task.is_completed else "⬜"
+        if task.end_time is None:
+            time_str = f"{task.start_time.strftime('%H:%M')}, без окончания"
+        else:
+            time_str = (
+                f"{task.start_time.strftime('%H:%M')}"
+                f"–{task.end_time.strftime('%H:%M')}"
+            )
+        label = f"{status} {task.title} ({time_str})"
+        builder.button(text=label, callback_data=f"task:toggle:{task.id}")
+    builder.button(text="🔙 Назад", callback_data="nav:back")
+    builder.adjust(1)  # one button per row
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Schedule with delete buttons — task list with 🗑 per task
+# ---------------------------------------------------------------------------
+
+
+def get_schedule_with_delete_keyboard(
+    tasks: list,
+) -> InlineKeyboardMarkup:
+    """Build an inline keyboard with task info and individual delete buttons.
+
+    Args:
+        tasks: A list of ``Task`` ORM objects.
+
+    Returns:
+        InlineKeyboardMarkup with one task-per-row and 🔙 Назад button.
+    """
+    builder = InlineKeyboardBuilder()
+    for task in tasks:
+        status = "✅" if task.is_completed else "⬜"
+        if task.end_time is None:
+            time_str = f"{task.start_time.strftime('%H:%M')}, без окончания"
+        else:
+            time_str = (
+                f"{task.start_time.strftime('%H:%M')}"
+                f"–{task.end_time.strftime('%H:%M')}"
+            )
+        label = f"{status} {task.title} ({time_str})"
+        builder.button(text=label, callback_data=f"task:delete:{task.id}")
+    builder.button(text="🔙 Назад", callback_data="nav:back")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Conflict resolution keyboard — force / edit / cancel
+# ---------------------------------------------------------------------------
+
+
+def get_conflict_resolution_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for resolving time conflicts.
+
+    Returns:
+        InlineKeyboardMarkup with 4 action buttons + navigation.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="💪 Всё равно добавить",
+        callback_data="conflict:force_add",
+    )
+    builder.button(
+        text="📋 Изменить расписание",
+        callback_data="conflict:edit_schedule",
+    )
+    builder.button(
+        text="✏️ Изменить задачу",
+        callback_data="conflict:edit_task",
+    )
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(1, 1, 1, 2)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Task delete confirmation keyboard
+# ---------------------------------------------------------------------------
+
+
+def get_task_delete_confirmation_keyboard(
+    task_id: int,
+) -> InlineKeyboardMarkup:
+    """Build an inline keyboard for confirming task deletion.
+
+    Args:
+        task_id: ID of the task to be deleted.
+
+    Returns:
+        InlineKeyboardMarkup with confirm / cancel buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Подтвердить",
+        callback_data=f"task:confirm_delete:{task_id}",
+    )
+    builder.button(text="❌ Отмена", callback_data="nav:back")
+    builder.adjust(2)
+    return builder.as_markup()

@@ -13,17 +13,17 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.asyncio
-async def test_main_menu_button_returns_placeholder(
+async def test_main_menu_fallback_for_unknown_callback(
     client: "TestClient",
 ) -> None:
-    """Verify that each main menu button returns the correct placeholder message."""
-
-    for label, callback_data in MAIN_MENU_BUTTONS:
-        message = await client.send_callback(callback_data)
-        expected_text = (
-            f"Функция '{label}' находится в разработке. Следите за обновлениями!"
-        )
-        assert message.text == expected_text, f"Unexpected text for {callback_data}"
+    """Verify that an unknown main_menu:* callback still triggers the
+    fallback placeholder message."""
+    message = await client.send_callback("main_menu:unknown_feature")
+    expected_text = (
+        "Функция 'main_menu:unknown_feature' находится в разработке. "
+        "Следите за обновлениями!"
+    )
+    assert message.text == expected_text
 
 
 @pytest.mark.asyncio

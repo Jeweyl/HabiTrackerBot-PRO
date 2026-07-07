@@ -7,7 +7,7 @@ from typing import AsyncGenerator
 
 import pytest
 import pytest_asyncio
-from aiogram import Dispatcher
+from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import CallbackQuery, Chat, Message, Update, User as TgUser
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,10 +38,23 @@ async def tasks_dispatcher() -> Dispatcher:
 async def test_bot():
     """Return a Bot instance backed by MockTelegramSession."""
     session = MockTelegramSession()
-    from aiogram import Bot
-
     bot = Bot(token="123456:ABC-DEF1234ghik", session=session)
     return bot
+
+
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _patch_generator_db(
+    monkeypatch,
+    async_session: AsyncSession,
+) -> None:
+    """Redirect habit_generator.get_db to the in-memory test session."""
+    @asynccontextmanager
+    async def _fake_get_db():
+        yield async_session
+
+    import src.services.habit_generator as gen_module
+
+    monkeypatch.setattr(gen_module, "get_db", _fake_get_db)
 
 
 class TasksTestClient:
@@ -320,11 +333,20 @@ async def test_conflict_with_concrete_end_time(
     await client.send_message("Conflicting Task")
     await client.send_callback("time:10:00", message_text="start time")
     await client.send_callback("time:12:00", message_text="end time")
-    # Confirm → should see conflict error
+    # Confirm → should see conflict resolution options
     msg = await client.send_callback("task:save", message_text="confirm")
-    assert "Конфликт" in msg.text
+    assert "конфликт" in msg.text.lower()
+    assert msg.reply_markup is not None
+    # Verify the conflict resolution buttons are present
+    all_cb = {
+        btn.callback_data
+        for row in msg.reply_markup.inline_keyboard
+        for btn in row
+    }
+    assert "conflict:force_add" in all_cb
+    assert "conflict:edit_schedule" in all_cb
 
-    # Verify only 1 task remains
+    # Verify only 1 task remains (conflicted task was NOT force-added)
     from sqlalchemy import select
 
     stmt = select(Task).where(Task.date == date(2026, 8, 1))
@@ -362,7 +384,8 @@ async def test_conflict_with_open_ended_task(
     await client.send_callback("time:10:00", message_text="start time")
     await client.send_callback("time:12:00", message_text="end time")
     msg = await client.send_callback("task:save", message_text="confirm")
-    assert "Конфликт" in msg.text
+    assert "конфликт" in msg.text.lower()
+    assert msg.reply_markup is not None
 
     # Verify only 1 task
     from sqlalchemy import select
@@ -546,3 +569,175 @@ async def test_back_from_confirm_to_end_time(client) -> None:
     # We're on confirm step — go back
     msg = await client.send_callback("nav:back", message_text="confirm")
     assert "Выберите время окончания" in msg.text
+
+
+# ===========================================================================
+# Test: today_tasks button shows today's schedule
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_today_tasks_shows_schedule(client, async_session) -> None:
+    """main_menu:today_tasks shows today's tasks (text with status icons)."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(9, 0),
+        end=time(10, 0),
+        title="Сегодняшняя задача",
+    )
+
+    msg = await client.send_callback("main_menu:today_tasks", message_text="menu")
+    assert "Сегодняшняя задача" in msg.text
+    # Status icon present
+    assert "⬜" in msg.text or "✅" in msg.text
+
+
+# ===========================================================================
+# Test: complete_tasks mode — empty
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_complete_tasks_mode_empty(client) -> None:
+    """complete_tasks mode on a day with no tasks shows empty message."""
+    msg = await client.send_callback("main_menu:complete_tasks", message_text="menu")
+    assert "На сегодня задач нет." in msg.text
+
+
+# ===========================================================================
+# Test: complete_tasks mode — with tasks (shows toggle buttons)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_complete_tasks_mode_with_tasks(client, async_session) -> None:
+    """complete_tasks mode renders each task as a toggle button with icons."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(10, 0),
+        end=time(11, 0),
+        title="Задача 1",
+    )
+    await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(14, 0),
+        end=time(15, 0),
+        title="Задача 2",
+    )
+
+    msg = await client.send_callback("main_menu:complete_tasks", message_text="menu")
+    assert "Отметьте выполненные задачи" in msg.text
+    assert msg.reply_markup is not None
+
+    keyboard = msg.reply_markup.inline_keyboard
+    all_cb = {btn.callback_data for row in keyboard for btn in row}
+
+    # Verify task toggle callbacks are present
+    toggle_cbs = {cb for cb in all_cb if cb.startswith("task:toggle:")}
+    assert len(toggle_cbs) == 2
+
+    # Verify button texts have status icons
+    all_texts = {btn.text for row in keyboard for btn in row}
+    for button_text in all_texts:
+        if "Задача" in button_text:
+            assert "⬜" in button_text, f"Expected ⬜ icon in '{button_text}'"
+
+
+# ===========================================================================
+# Test: task toggle flips is_completed
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_task_toggle(client, async_session) -> None:
+    """Tapping a task toggle button flips is_completed and updates keyboard."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(9, 0),
+        end=time(10, 0),
+        title="Переключаемая",
+    )
+    assert task.is_completed is False
+
+    # Open completion mode
+    await client.send_callback("main_menu:complete_tasks", message_text="menu")
+
+    # Tap toggle
+    msg = await client.send_callback(
+        f"task:toggle:{task.id}",
+        message_text="Отметьте выполненные задачи",
+    )
+    # Verify the keyboard updated — find the button for our task
+    keyboard = msg.reply_markup.inline_keyboard
+    task_button_text = next(
+        (
+            btn.text
+            for row in keyboard
+            for btn in row
+            if f"task:toggle:{task.id}" == btn.callback_data
+        ),
+        None,
+    )
+    assert task_button_text is not None
+    assert "✅" in task_button_text
+
+    # Verify DB change
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    updated = result.scalar_one()
+    assert updated.is_completed is True
+
+
+# ===========================================================================
+# Test: toggle unauthorized task
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_task_toggle_unauthorized(client, async_session) -> None:
+    """Trying to toggle another user's task shows an alert error."""
+    # Create a task for user 999999 (different from client's 123456)
+    other_user_id = await _ensure_user(async_session, 999999)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=other_user_id,
+        date_val=today,
+        start=time(9, 0),
+        end=time(10, 0),
+        title="Чужая задача",
+    )
+
+    # Try to toggle as user 123456
+    try:
+        await client.send_callback(
+            f"task:toggle:{task.id}",
+            user_id=123456,
+            message_text="some message",
+        )
+    except RuntimeError:
+        pass  # Expected — toggle doesn't send a new message, only edits markup
+
+    # Verify task was NOT changed
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    unchanged = result.scalar_one()
+    assert unchanged.is_completed is False
