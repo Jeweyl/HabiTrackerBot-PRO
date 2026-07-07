@@ -741,3 +741,454 @@ async def test_task_toggle_unauthorized(client, async_session) -> None:
     result = await async_session.execute(stmt)
     unchanged = result.scalar_one()
     assert unchanged.is_completed is False
+
+
+# ===========================================================================
+# Stage 4.6.1 — Task Management Menu & Edit Fields tests
+# ===========================================================================
+
+
+async def _create_habit(
+    session,
+    *,
+    user_id,
+    title="Test Habit",
+    start_time=time(10, 0),
+    end_time=time(12, 0),
+    frequency="daily",
+):
+    """Create and persist a Habit, returning it."""
+    from src.db.models import Habit
+
+    habit = Habit(
+        user_id=user_id,
+        title=title,
+        start_time=start_time,
+        end_time=end_time,
+        frequency=frequency,
+    )
+    session.add(habit)
+    await session.commit()
+    return habit
+
+
+# ===========================================================================
+# Test: task management menu — buttons appear correctly
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_task_management_menu(client, async_session) -> None:
+    """Task management keyboard shows correct buttons."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(9, 0),
+        end=time(10, 0),
+        title="Управляемая задача",
+    )
+
+    msg = await client.send_callback(
+        f"task:manage:{task.id}", message_text="schedule",
+    )
+    assert "Управление задачей" in msg.text
+    assert "Управляемая задача" in msg.text
+    assert msg.reply_markup is not None
+
+    all_cb = {
+        btn.callback_data for row in msg.reply_markup.inline_keyboard for btn in row
+    }
+    assert f"task:delete:{task.id}" in all_cb
+    assert f"task:edit:{task.id}" in all_cb
+    # No habit linked → reset button should NOT appear
+    reset_cbs = {cb for cb in all_cb if cb.startswith("task:reset:")}
+    assert len(reset_cbs) == 0
+    assert "nav:back" in all_cb
+    assert "nav:cancel" in all_cb
+
+
+# ===========================================================================
+# Test: edit task title
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_edit_task_title(client, async_session) -> None:
+    """Changing title via edit flow updates the DB."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(14, 0),
+        end=time(15, 0),
+        title="Старое название",
+    )
+
+    # Open management → edit
+    await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
+    await client.send_callback(f"task:edit:{task.id}", message_text="management")
+
+    # Select title field
+    await client.send_callback(
+        "edit_task_field:title", message_text="edit field",
+    )
+    # Enter new title
+    await client.send_message("Новое название")
+
+    # Confirm changes
+    await client.send_callback(
+        "task:confirm_changes", message_text="edit field",
+    )
+
+    # Verify DB
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    updated = result.scalar_one()
+    assert updated.title == "Новое название"
+
+
+# ===========================================================================
+# Test: edit start time auto-extension
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_edit_start_time_auto_extension(client, async_session) -> None:
+    """Changing start_time shifts end_time by the same duration."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(10, 0),
+        end=time(12, 0),
+        title="Auto-extend",
+    )
+
+    # Open management → edit
+    await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
+    await client.send_callback(f"task:edit:{task.id}", message_text="management")
+
+    # Select start_time field
+    await client.send_callback(
+        "edit_task_field:start_time", message_text="edit field",
+    )
+    # Choose new start time 14:00 (old duration = 2h, expected end = 16:00)
+    msg = await client.send_callback(
+        "time:14:00", message_text="start time selection",
+    )
+    assert "14:00" in msg.text
+    assert "16:00" in msg.text  # auto-extended
+    assert "автоматически" in msg.text.lower()
+
+    # Confirm changes
+    await client.send_callback(
+        "task:confirm_changes", message_text="edit field",
+    )
+
+    # Verify DB
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    updated = result.scalar_one()
+    assert updated.start_time == time(14, 0)
+    assert updated.end_time == time(16, 0)
+
+
+# ===========================================================================
+# Test: edit end_time manual override
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_edit_end_time_manual(client, async_session) -> None:
+    """Manually changing end_time disables auto-extension."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(10, 0),
+        end=time(12, 0),
+        title="Manual end",
+    )
+
+    # Open management → edit
+    await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
+    await client.send_callback(f"task:edit:{task.id}", message_text="management")
+
+    # First change end_time manually
+    await client.send_callback(
+        "edit_task_field:end_time", message_text="edit field",
+    )
+    await client.send_callback("time:13:00", message_text="end time selection")
+
+    # Now change start_time — should NOT auto-extend
+    await client.send_callback(
+        "edit_task_field:start_time", message_text="edit field",
+    )
+    msg = await client.send_callback(
+        "time:14:00", message_text="start time selection",
+    )
+    # Should NOT mention auto-extension
+    assert "автоматически" not in msg.text.lower()
+
+    # Confirm and verify end_time stayed at 13:00
+    await client.send_callback(
+        "task:confirm_changes", message_text="edit field",
+    )
+
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    updated = result.scalar_one()
+    assert updated.start_time == time(14, 0)
+    assert updated.end_time == time(13, 0)  # Remained as manually set
+
+
+# ===========================================================================
+# Test: edit start time out of day bounds
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_edit_start_time_out_of_day_bounds(client, async_session) -> None:
+    """Start time that would push end_time past 23:59 is rejected."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(10, 0),
+        end=time(12, 0),
+        title="Bounds test",
+    )
+
+    # Open management → edit
+    await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
+    await client.send_callback(f"task:edit:{task.id}", message_text="management")
+
+    # Change start_time to 22:00 (end would be 00:00 next day → out of bounds)
+    await client.send_callback(
+        "edit_task_field:start_time", message_text="edit field",
+    )
+    msg = await client.send_callback(
+        "time:22:00", message_text="start time selection",
+    )
+    assert "границы" in msg.text.lower() or "23:59" in msg.text
+
+    # Verify DB unchanged
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    unchanged = result.scalar_one()
+    assert unchanged.start_time == time(10, 0)
+    assert unchanged.end_time == time(12, 0)
+
+
+# ===========================================================================
+# Test: reset task to habit
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_reset_task_to_habit(client, async_session) -> None:
+    """Resetting a modified habit-task restores habit's time template."""
+    user_id = await _ensure_user(async_session, 123456)
+    habit = await _create_habit(
+        async_session,
+        user_id=user_id,
+        start_time=time(9, 0),
+        end_time=time(11, 0),
+        frequency="daily",
+    )
+
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(14, 0),  # Modified from habit (9:00)
+        end=time(16, 0),  # Modified from habit (11:00)
+        title="Reset me",
+    )
+    # Link to habit
+    task.habit_id = habit.id
+    await async_session.commit()
+
+    # Open management — should show reset button
+    msg = await client.send_callback(
+        f"task:manage:{task.id}", message_text="schedule",
+    )
+    all_cb = {
+        btn.callback_data for row in msg.reply_markup.inline_keyboard for btn in row
+    }
+    assert f"task:reset:{task.id}" in all_cb
+
+    # Click reset
+    await client.send_callback(
+        f"task:reset:{task.id}", message_text="management",
+    )
+
+    # Confirm changes to persist reset
+    await client.send_callback(
+        "task:confirm_changes", message_text="management",
+    )
+
+    # Verify DB — time restored to habit template
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    updated = result.scalar_one()
+    assert updated.start_time == time(9, 0)
+    assert updated.end_time == time(11, 0)
+
+
+# ===========================================================================
+# Test: reset task with changed date keeps the date
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_reset_task_keeps_date(client, async_session) -> None:
+    """Reset only changes time, not the date."""
+    user_id = await _ensure_user(async_session, 123456)
+    habit = await _create_habit(
+        async_session,
+        user_id=user_id,
+        start_time=time(8, 0),
+        end_time=time(10, 0),
+        frequency="daily",
+    )
+
+    custom_date = date(2026, 12, 25)
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=custom_date,
+        start=time(12, 0),
+        end=time(14, 0),
+        title="Xmas task",
+    )
+    task.habit_id = habit.id
+    await async_session.commit()
+
+    # Reset
+    await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
+    await client.send_callback(f"task:reset:{task.id}", message_text="management")
+
+    # Confirm
+    await client.send_callback(
+        "task:confirm_changes", message_text="management",
+    )
+
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    updated = result.scalar_one()
+    assert updated.start_time == time(8, 0)
+    assert updated.end_time == time(10, 0)
+    assert updated.date == custom_date  # Date unchanged
+
+
+# ===========================================================================
+# Test: cancel changes does not save
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_cancel_changes(client, async_session) -> None:
+    """Cancelling the edit flow does NOT save changes to DB."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(10, 0),
+        end=time(11, 0),
+        title="Original",
+    )
+
+    await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
+    await client.send_callback(f"task:edit:{task.id}", message_text="management")
+    await client.send_callback(
+        "edit_task_field:title", message_text="edit field",
+    )
+    await client.send_message("Changed")
+
+    # Now cancel
+    msg = await client.send_callback("nav:cancel", message_text="edit field")
+    assert "отменено" in msg.text.lower()
+
+    # Verify DB unchanged
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    unchanged = result.scalar_one()
+    assert unchanged.title == "Original"
+
+
+# ===========================================================================
+# Test: edit task conflict check
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_edit_task_conflict_check(client, async_session) -> None:
+    """Editing a task to overlap another triggers conflict resolution."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+
+    task_a = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(9, 0),
+        end=time(10, 0),
+        title="Task A",
+    )
+    await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(14, 0),
+        end=time(15, 0),
+        title="Task B",
+    )
+
+    # Edit task_a's time to overlap with task_b
+    await client.send_callback(f"task:manage:{task_a.id}", message_text="schedule")
+    await client.send_callback(f"task:edit:{task_a.id}", message_text="management")
+    await client.send_callback(
+        "edit_task_field:start_time", message_text="edit field",
+    )
+    await client.send_callback("time:14:00", message_text="start time selection")
+
+    # Confirm — should trigger conflict
+    msg = await client.send_callback(
+        "task:confirm_changes", message_text="edit field",
+    )
+    assert "конфликт" in msg.text.lower()
+    assert msg.reply_markup is not None
+    # Verify conflict keyboard buttons
+    all_cb = {
+        btn.callback_data for row in msg.reply_markup.inline_keyboard for btn in row
+    }
+    assert "conflict:force_add" in all_cb

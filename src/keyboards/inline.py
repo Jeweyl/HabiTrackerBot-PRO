@@ -362,14 +362,14 @@ def get_tasks_completion_keyboard(
 
 
 # ---------------------------------------------------------------------------
-# Schedule with delete buttons — task list with 🗑 per task
+# Schedule management keyboard — task list with manage buttons
 # ---------------------------------------------------------------------------
 
 
-def get_schedule_with_delete_keyboard(
+def get_schedule_management_keyboard(
     tasks: list,
 ) -> InlineKeyboardMarkup:
-    """Build an inline keyboard with task info and individual delete buttons.
+    """Build an inline keyboard with each task as a clickable manage button.
 
     Args:
         tasks: A list of ``Task`` ORM objects.
@@ -388,7 +388,7 @@ def get_schedule_with_delete_keyboard(
                 f"–{task.end_time.strftime('%H:%M')}"
             )
         label = f"{status} {task.title} ({time_str})"
-        builder.button(text=label, callback_data=f"task:delete:{task.id}")
+        builder.button(text=label, callback_data=f"task:manage:{task.id}")
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.adjust(1)
     return builder.as_markup()
@@ -446,5 +446,94 @@ def get_task_delete_confirmation_keyboard(
         callback_data=f"task:confirm_delete:{task_id}",
     )
     builder.button(text="❌ Отмена", callback_data="nav:back")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Task management keyboard — shown when a task is selected from the schedule
+# ---------------------------------------------------------------------------
+
+
+def get_task_management_keyboard(
+    task_id: int,
+    has_habit: bool = False,
+    is_modified: bool = False,
+) -> InlineKeyboardMarkup:
+    """Build an inline keyboard with task management actions.
+
+    Args:
+        task_id: ID of the task to manage.
+        has_habit: Whether the task is linked to a habit.
+        is_modified: Whether the task differs from its habit template.
+
+    Returns:
+        InlineKeyboardMarkup with delete / edit / reset / back / cancel buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🗑 Удалить",
+        callback_data=f"task:delete:{task_id}",
+    )
+    builder.button(
+        text="✏️ Редактировать",
+        callback_data=f"task:edit:{task_id}",
+    )
+    if has_habit and is_modified:
+        builder.button(
+            text="🔄 Сбросить к привычке",
+            callback_data=f"task:reset:{task_id}",
+        )
+    builder.button(text="🔙 Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    # Calculate row layout: 2 + optional 1 + 2 (back+cancel)
+    row_spec = [1, 1]
+    if has_habit and is_modified:
+        row_spec.append(1)
+    row_spec.append(2)
+    builder.adjust(*row_spec)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Edit task field selection keyboard
+# ---------------------------------------------------------------------------
+
+
+def get_edit_task_field_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for selecting which task field to edit.
+
+    Returns:
+        InlineKeyboardMarkup with 4 field buttons + cancel.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📝 Название", callback_data="edit_task_field:title")
+    builder.button(text="📅 Дата", callback_data="edit_task_field:date")
+    builder.button(text="🕐 Время начала", callback_data="edit_task_field:start_time")
+    builder.button(
+        text="🕐 Время окончания", callback_data="edit_task_field:end_time"
+    )
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(1, 1, 1, 1, 1)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Confirm task changes keyboard
+# ---------------------------------------------------------------------------
+
+
+def get_task_confirm_changes_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for confirming task edit changes.
+
+    Returns:
+        InlineKeyboardMarkup with confirm / cancel buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Подтвердить",
+        callback_data="task:confirm_changes",
+    )
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(2)
     return builder.as_markup()

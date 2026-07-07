@@ -76,3 +76,25 @@ class ConflictFSM(StatesGroup):
     """
 
     choose_action = State()
+
+
+class EditTaskFSM(StatesGroup):
+    """FSM group for the task management and editing flow.
+
+    Attributes:
+        choose_action: User chooses delete / edit / reset / back / main menu.
+        edit_field: User selects which field to edit.
+        edit_title: User enters a new title.
+        edit_date: User selects a new date via the calendar.
+        edit_start_time: User selects a new start time.
+        edit_end_time: User selects a new end time.
+        confirm_changes: User reviews and confirms the changes.
+    """
+
+    choose_action = State()
+    edit_field = State()
+    edit_title = State()
+    edit_date = State()
+    edit_start_time = State()
+    edit_end_time = State()
+    confirm_changes = State()

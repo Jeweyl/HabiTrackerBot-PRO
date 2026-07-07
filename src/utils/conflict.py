@@ -14,6 +14,7 @@ async def is_time_slot_free(
     task_date: date,
     start_time: time,
     end_time: time | None,
+    exclude_task_id: int | None = None,
 ) -> bool:
     """Check whether a time slot is free for a given user and date.
 
@@ -35,25 +36,23 @@ async def is_time_slot_free(
         task_date: Date of the proposed task.
         start_time: Start time of the proposed task.
         end_time: End time of the proposed task (``None`` = open‑ended).
+        exclude_task_id: If provided, exclude this task from the conflict
+            check (used when editing an existing task).
 
     Returns:
         ``True`` if the slot is free, ``False`` if a conflict exists.
     """
     if end_time is None:
-        # New task has no end — conflicts with any task that is
-        # open-ended OR ends after new_start_time
-        conflict_condition = and_(
+        conditions = [
             Task.user_id == user_id,
             Task.date == task_date,
             or_(
                 Task.end_time.is_(None),
                 Task.end_time > start_time,
             ),
-        )
+        ]
     else:
-        # New task has an end — conflicts with any task that starts
-        # before new_end AND is open-ended OR ends after new_start
-        conflict_condition = and_(
+        conditions = [
             Task.user_id == user_id,
             Task.date == task_date,
             Task.start_time < end_time,
@@ -61,9 +60,12 @@ async def is_time_slot_free(
                 Task.end_time.is_(None),
                 Task.end_time > start_time,
             ),
-        )
+        ]
 
-    conflict_stmt = select(Task).where(conflict_condition)
+    if exclude_task_id is not None:
+        conditions.append(Task.id != exclude_task_id)
+
+    conflict_stmt = select(Task).where(and_(*conditions))
     result = await session.execute(conflict_stmt)
     conflicting = result.scalars().first()
     return conflicting is None
