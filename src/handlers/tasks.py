@@ -21,10 +21,9 @@ from src.keyboards.inline import (
     get_month_calendar_keyboard,
     get_schedule_management_keyboard,
     get_simple_schedule_keyboard,
-    get_task_confirm_changes_keyboard,
+    get_task_action_keyboard,
     get_task_confirm_keyboard,
     get_task_delete_confirmation_keyboard,
-    get_task_management_keyboard,
     get_tasks_completion_keyboard,
     get_time_selection_keyboard,
 )
@@ -381,8 +380,7 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
 
     if not task_date_str or not task_title or not start_str:
         await callback.message.edit_text(
-            "⚠️ Произошла ошибка. Не хватает данных. "
-            "Начните создание задачи заново.",
+            "⚠️ Произошла ошибка. Не хватает данных. " "Начните создание задачи заново.",
             reply_markup=get_main_menu_keyboard(),
         )
         await state.clear()
@@ -417,7 +415,9 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
             )
             return
 
-        await _persist_task(session, user_id, task_date, task_title, new_start_time, new_end_time)
+        await _persist_task(
+            session, user_id, task_date, task_title, new_start_time, new_end_time
+        )
 
     await state.clear()
     await state.set_state(MainFSM.main_menu)
@@ -524,7 +524,9 @@ async def _conflict_save_and_show(
             await state.set_state(MainFSM.main_menu)
             return
 
-        await _persist_task(session, user_id, task_date, task_title, new_start_time, new_end_time)
+        await _persist_task(
+            session, user_id, task_date, task_title, new_start_time, new_end_time
+        )
 
     await state.clear()
     await state.set_state(MainFSM.main_menu)
@@ -588,7 +590,9 @@ async def manage_task(callback: CallbackQuery, state: FSMContext) -> None:
 
         task = await session.get(Task, task_id)
         if task is None or task.user_id != user_id:
-            await callback.answer("⛔ Задача не найдена или недоступна.", show_alert=True)
+            await callback.answer(
+                "⛔ Задача не найдена или недоступна.", show_alert=True
+            )
             return
 
         # Determine habit linkage and modification status
@@ -618,9 +622,16 @@ async def manage_task(callback: CallbackQuery, state: FSMContext) -> None:
         f"Управление задачей «{task.title}»:\n"
         f"📅 {task.date.isoformat()} | "
         f"⏰ {task.start_time.strftime('%H:%M')}"
-        + (f"–{task.end_time.strftime('%H:%M')}" if task.end_time else ", без окончания"),
-        reply_markup=get_task_management_keyboard(
-            task_id=task_id, has_habit=has_habit, is_modified=is_modified,
+        + (
+            f"–{task.end_time.strftime('%H:%M')}"
+            if task.end_time
+            else ", без окончания"
+        ),
+        reply_markup=get_task_action_keyboard(
+            task_id=task_id,
+            is_completed=task.is_completed,
+            has_habit=has_habit,
+            is_modified=is_modified,
         ),
     )
 
@@ -647,7 +658,9 @@ async def confirm_delete_task(callback: CallbackQuery, state: FSMContext) -> Non
 
         task = await session.get(Task, task_id)
         if task is None or task.user_id != user_id:
-            await callback.answer("⛔ Задача не найдена или недоступна.", show_alert=True)
+            await callback.answer(
+                "⛔ Задача не найдена или недоступна.", show_alert=True
+            )
             return
 
         task_date = task.date.isoformat()
@@ -655,8 +668,7 @@ async def confirm_delete_task(callback: CallbackQuery, state: FSMContext) -> Non
 
     await state.update_data(delete_task_date=task_date)
     await callback.message.edit_text(
-        f"Вы уверены, что хотите удалить задачу «{task_title}» "
-        f"на {task_date}?",
+        f"Вы уверены, что хотите удалить задачу «{task_title}» " f"на {task_date}?",
         reply_markup=get_task_delete_confirmation_keyboard(task_id),
     )
 
@@ -683,7 +695,9 @@ async def execute_delete_task(callback: CallbackQuery, state: FSMContext) -> Non
 
         task = await session.get(Task, task_id)
         if task is None or task.user_id != user_id:
-            await callback.answer("⛔ Задача не найдена или недоступна.", show_alert=True)
+            await callback.answer(
+                "⛔ Задача не найдена или недоступна.", show_alert=True
+            )
             return
 
         task_date = task.date
@@ -723,7 +737,9 @@ async def start_edit_task(callback: CallbackQuery, state: FSMContext) -> None:
 
         task = await session.get(Task, task_id)
         if task is None or task.user_id != user_id:
-            await callback.answer("⛔ Задача не найдена или недоступна.", show_alert=True)
+            await callback.answer(
+                "⛔ Задача не найдена или недоступна.", show_alert=True
+            )
             return
 
         # Initialize pending values with current task data
@@ -741,7 +757,10 @@ async def start_edit_task(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(EditTaskFSM.edit_field)
     await callback.message.edit_text(
         "Что вы хотите изменить в задаче?",
-        reply_markup=get_edit_task_field_keyboard(),
+        reply_markup=get_edit_task_field_keyboard(
+            task_id=task_id,
+            is_completed=task.is_completed,
+        ),
     )
 
 
@@ -750,9 +769,7 @@ async def start_edit_task(callback: CallbackQuery, state: FSMContext) -> None:
 # ===========================================================================
 
 
-@router.callback_query(
-    EditTaskFSM.edit_field, F.data == "edit_task_field:title"
-)
+@router.callback_query(EditTaskFSM.edit_field, F.data == "edit_task_field:title")
 async def edit_task_title_prompt(callback: CallbackQuery, state: FSMContext) -> None:
     """Prompt the user to enter a new title."""
     await callback.answer()
@@ -763,9 +780,7 @@ async def edit_task_title_prompt(callback: CallbackQuery, state: FSMContext) -> 
     )
 
 
-@router.callback_query(
-    EditTaskFSM.edit_field, F.data == "edit_task_field:date"
-)
+@router.callback_query(EditTaskFSM.edit_field, F.data == "edit_task_field:date")
 async def edit_task_date_prompt(callback: CallbackQuery, state: FSMContext) -> None:
     """Show the calendar to select a new date."""
     await callback.answer()
@@ -777,11 +792,10 @@ async def edit_task_date_prompt(callback: CallbackQuery, state: FSMContext) -> N
     )
 
 
-@router.callback_query(
-    EditTaskFSM.edit_field, F.data == "edit_task_field:start_time"
-)
+@router.callback_query(EditTaskFSM.edit_field, F.data == "edit_task_field:start_time")
 async def edit_task_start_time_prompt(
-    callback: CallbackQuery, state: FSMContext,
+    callback: CallbackQuery,
+    state: FSMContext,
 ) -> None:
     """Show the time keyboard to select a new start time."""
     await callback.answer()
@@ -792,11 +806,10 @@ async def edit_task_start_time_prompt(
     )
 
 
-@router.callback_query(
-    EditTaskFSM.edit_field, F.data == "edit_task_field:end_time"
-)
+@router.callback_query(EditTaskFSM.edit_field, F.data == "edit_task_field:end_time")
 async def edit_task_end_time_prompt(
-    callback: CallbackQuery, state: FSMContext,
+    callback: CallbackQuery,
+    state: FSMContext,
 ) -> None:
     """Show the time keyboard to select a new end time."""
     await callback.answer()
@@ -811,7 +824,8 @@ async def edit_task_end_time_prompt(
     await callback.message.edit_text(
         "🕐 Выберите новое время окончания:",
         reply_markup=get_time_selection_keyboard(
-            min_time=min_time, show_null_option=True,
+            min_time=min_time,
+            show_null_option=True,
         ),
     )
 
@@ -836,8 +850,7 @@ async def apply_edit_task_title(message: Message, state: FSMContext) -> None:
     await state.update_data(pending_title=title)
     await state.set_state(EditTaskFSM.edit_field)
     await message.answer(
-        f"✅ Название изменено на «{title}».\n"
-        "Что вы хотите изменить в задаче?",
+        f"✅ Название изменено на «{title}».\n" "Что вы хотите изменить в задаче?",
         reply_markup=get_edit_task_field_keyboard(),
     )
 
@@ -848,7 +861,8 @@ async def apply_edit_task_title(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(
-    EditTaskFSM.edit_date, F.data.startswith("calendar:day:"),
+    EditTaskFSM.edit_date,
+    F.data.startswith("calendar:day:"),
 )
 async def apply_edit_task_date(callback: CallbackQuery, state: FSMContext) -> None:
     """Apply a new date to the task being edited."""
@@ -871,10 +885,13 @@ async def apply_edit_task_date(callback: CallbackQuery, state: FSMContext) -> No
 
 
 @router.callback_query(
-    EditTaskFSM.edit_start_time, F.data.startswith("time:"), F.data != "time:null",
+    EditTaskFSM.edit_start_time,
+    F.data.startswith("time:"),
+    F.data != "time:null",
 )
 async def apply_edit_task_start_time(
-    callback: CallbackQuery, state: FSMContext,
+    callback: CallbackQuery,
+    state: FSMContext,
 ) -> None:
     """Apply a new start time, automatically extending end_time."""
     await callback.answer()
@@ -900,19 +917,21 @@ async def apply_edit_task_start_time(
     # Auto-extension: only if end_time was NOT manually set
     if not end_time_manually_set and old_start is not None and old_end is not None:
         # Calculate duration
-        today_ref = date.today()
         old_dt_start = timedelta(
-            hours=old_start.hour, minutes=old_start.minute,
+            hours=old_start.hour,
+            minutes=old_start.minute,
         )
         old_dt_end = timedelta(
-            hours=old_end.hour, minutes=old_end.minute,
+            hours=old_end.hour,
+            minutes=old_end.minute,
         )
         if old_dt_end <= old_dt_start:
             old_dt_end += timedelta(days=1)  # Handle overnight
 
         duration = old_dt_end - old_dt_start
         new_dt_start = timedelta(
-            hours=new_start_time.hour, minutes=new_start_time.minute,
+            hours=new_start_time.hour,
+            minutes=new_start_time.minute,
         )
         new_dt_end = new_dt_start + duration
 
@@ -965,10 +984,12 @@ async def apply_edit_task_start_time(
 
 
 @router.callback_query(
-    EditTaskFSM.edit_end_time, F.data.startswith("time:"),
+    EditTaskFSM.edit_end_time,
+    F.data.startswith("time:"),
 )
 async def apply_edit_task_end_time(
-    callback: CallbackQuery, state: FSMContext,
+    callback: CallbackQuery,
+    state: FSMContext,
 ) -> None:
     """Apply a new end time to the task being edited."""
     await callback.answer()
@@ -1002,7 +1023,8 @@ async def apply_edit_task_end_time(
             "⚠️ Время окончания должно быть позже времени начала. "
             "Выберите другое время:",
             reply_markup=get_time_selection_keyboard(
-                min_time=start_time, show_null_option=True,
+                min_time=start_time,
+                show_null_option=True,
             ),
         )
         return
@@ -1040,19 +1062,23 @@ async def reset_task_to_habit(callback: CallbackQuery, state: FSMContext) -> Non
 
         task = await session.get(Task, task_id)
         if task is None or task.user_id != user_id:
-            await callback.answer("⛔ Задача не найдена или недоступна.", show_alert=True)
+            await callback.answer(
+                "⛔ Задача не найдена или недоступна.", show_alert=True
+            )
             return
 
         if task.habit_id is None:
             await callback.answer(
-                "Эта задача не связана с привычкой.", show_alert=True,
+                "Эта задача не связана с привычкой.",
+                show_alert=True,
             )
             return
 
         habit = await session.get(Habit, task.habit_id)
         if habit is None:
             await callback.answer(
-                "Привычка не найдена.", show_alert=True,
+                "Привычка не найдена.",
+                show_alert=True,
             )
             return
 
@@ -1062,8 +1088,7 @@ async def reset_task_to_habit(callback: CallbackQuery, state: FSMContext) -> Non
             pending_date=task.date.isoformat(),
             pending_start_time=habit.start_time.isoformat(timespec="minutes"),
             pending_end_time=(
-                habit.end_time.isoformat(timespec="minutes")
-                if habit.end_time else None
+                habit.end_time.isoformat(timespec="minutes") if habit.end_time else None
             ),
             end_time_manually_set=False,
         )
@@ -1074,8 +1099,11 @@ async def reset_task_to_habit(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.message.edit_text(
         f"🔄 Время задачи «{task.title}» сброшено к шаблону привычки.\n\n"
         f"Управление задачей «{task.title}»:",
-        reply_markup=get_task_management_keyboard(
-            task_id=task_id, has_habit=has_habit, is_modified=is_modified,
+        reply_markup=get_task_action_keyboard(
+            task_id=task_id,
+            is_completed=task.is_completed,
+            has_habit=has_habit,
+            is_modified=is_modified,
         ),
     )
 
@@ -1097,7 +1125,12 @@ async def confirm_edit_changes(callback: CallbackQuery, state: FSMContext) -> No
     pending_start_str: str = data.get("pending_start_time", "")
     pending_end_str: str | None = data.get("pending_end_time")
 
-    if not task_id or not pending_title or not pending_date_str or not pending_start_str:
+    if (
+        not task_id
+        or not pending_title
+        or not pending_date_str
+        or not pending_start_str
+    ):
         await callback.message.edit_text(
             "⚠️ Не хватает данных. Редактирование отменено.",
             reply_markup=get_main_menu_keyboard(),
@@ -1124,7 +1157,9 @@ async def confirm_edit_changes(callback: CallbackQuery, state: FSMContext) -> No
 
         task = await session.get(Task, task_id)
         if task is None or task.user_id != user_id:
-            await callback.answer("⛔ Задача не найдена или недоступна.", show_alert=True)
+            await callback.answer(
+                "⛔ Задача не найдена или недоступна.", show_alert=True
+            )
             return
 
         # Conflict check (excluding this task itself)
@@ -1237,7 +1272,9 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
                 f"📝 Название: {task_title}\n"
                 f"⏰ Время: {time_display}"
             )
-            await callback.message.edit_text(summary, reply_markup=get_task_confirm_keyboard())
+            await callback.message.edit_text(
+                summary, reply_markup=get_task_confirm_keyboard()
+            )
             return
 
     # --- EditTaskFSM back navigation ---
@@ -1277,8 +1314,9 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(EditTaskFSM.choose_action)
         await callback.message.edit_text(
             f"Управление задачей «{task.title if task else '...'}»:",
-            reply_markup=get_task_management_keyboard(
+            reply_markup=get_task_action_keyboard(
                 task_id=task_id,
+                is_completed=task.is_completed if task else False,
                 has_habit=has_habit if task else False,
                 is_modified=is_modified if task else False,
             ),
@@ -1465,11 +1503,24 @@ async def complete_tasks_mode(callback: CallbackQuery, state: FSMContext) -> Non
 
 
 @router.callback_query(F.data.startswith("task:toggle:"))
-async def toggle_task_completion(callback: CallbackQuery) -> None:
-    """Toggle the is_completed flag for a task."""
+async def toggle_task_completion(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    """Toggle the is_completed flag for a task.
+
+    Behaviour depends on the current FSM context:
+    - ``EditTaskFSM.choose_action`` → redraw the action menu with the
+      updated status.
+    - ``EditTaskFSM.edit_field`` → redraw the edit-field keyboard with
+      the updated status (FSM data is preserved so the user can continue
+      editing).
+    - Otherwise (e.g. ``MainFSM.main_menu`` / completion mode) → redraw
+      the completion keyboard for today's tasks.
+    """
     await callback.answer()
     task_id = int(callback.data.split(":")[2])
-    today = date.today()
+    current_state = await state.get_state()
 
     async with get_db() as session:
         user_id = await _get_user_id(callback.from_user.id, session)
@@ -1482,12 +1533,52 @@ async def toggle_task_completion(callback: CallbackQuery) -> None:
         task = result.scalar_one_or_none()
 
         if task is None or task.user_id != user_id:
-            await callback.answer("⛔ Задача не найдена или недоступна.", show_alert=True)
+            await callback.answer(
+                "⛔ Задача не найдена или недоступна.", show_alert=True
+            )
             return
 
         task.is_completed = not task.is_completed
         await session.commit()
 
+        # Determine habit linkage for the keyboard
+        has_habit = task.habit_id is not None
+        is_modified = False
+        if has_habit:
+            habit = await session.get(Habit, task.habit_id)
+            if habit is not None:
+                is_modified = (
+                    task.start_time != habit.start_time
+                    or task.end_time != habit.end_time
+                )
+
+    # --- Context-aware redraw ---
+    if current_state == EditTaskFSM.choose_action.state:
+        # Stay in the action menu, just update the toggle button label
+        await callback.message.edit_reply_markup(
+            reply_markup=get_task_action_keyboard(
+                task_id=task_id,
+                is_completed=task.is_completed,
+                has_habit=has_habit,
+                is_modified=is_modified,
+            ),
+        )
+        return
+
+    if current_state == EditTaskFSM.edit_field.state:
+        # Stay in the edit-field menu, just update the toggle button label.
+        # FSM data (pending_title, pending_date, etc.) is NOT touched.
+        await callback.message.edit_reply_markup(
+            reply_markup=get_edit_task_field_keyboard(
+                task_id=task_id,
+                is_completed=task.is_completed,
+            ),
+        )
+        return
+
+    # Default: completion mode (main_menu:complete_tasks)
+    today = date.today()
+    async with get_db() as session:
         stmt = (
             select(Task)
             .where(Task.user_id == user_id, Task.date == today)

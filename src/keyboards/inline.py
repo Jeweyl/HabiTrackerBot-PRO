@@ -487,6 +487,61 @@ def get_task_delete_confirmation_keyboard(
 # ---------------------------------------------------------------------------
 
 
+def get_task_action_keyboard(
+    task_id: int,
+    is_completed: bool = False,
+    has_habit: bool = False,
+    is_modified: bool = False,
+) -> InlineKeyboardMarkup:
+    """Build an inline keyboard with task action buttons.
+
+    Shown when the user taps a task in the schedule.  Includes a toggle
+    button for completion status, edit, delete, optional reset-to-habit,
+    back, and main menu.
+
+    Args:
+        task_id: ID of the task.
+        is_completed: Current completion status of the task.
+        has_habit: Whether the task is linked to a habit.
+        is_modified: Whether the task differs from its habit template.
+
+    Returns:
+        InlineKeyboardMarkup with action buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    if is_completed:
+        builder.button(
+            text="❌ Отметить невыполненным",
+            callback_data=f"task:toggle:{task_id}",
+        )
+    else:
+        builder.button(
+            text="✅ Отметить выполненным",
+            callback_data=f"task:toggle:{task_id}",
+        )
+    builder.button(
+        text="✏️ Редактировать",
+        callback_data=f"task:edit:{task_id}",
+    )
+    builder.button(
+        text="🗑 Удалить",
+        callback_data=f"task:delete:{task_id}",
+    )
+    if has_habit and is_modified:
+        builder.button(
+            text="🔄 Сбросить к привычке",
+            callback_data=f"task:reset:{task_id}",
+        )
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
+    row_spec = [1, 1, 1]
+    if has_habit and is_modified:
+        row_spec.append(1)
+    row_spec.append(2)
+    builder.adjust(*row_spec)
+    return builder.as_markup()
+
+
 def get_task_management_keyboard(
     task_id: int,
     has_habit: bool = False,
@@ -531,19 +586,45 @@ def get_task_management_keyboard(
 # ---------------------------------------------------------------------------
 
 
-def get_edit_task_field_keyboard() -> InlineKeyboardMarkup:
+def get_edit_task_field_keyboard(
+    task_id: int | None = None,
+    is_completed: bool = False,
+) -> InlineKeyboardMarkup:
     """Build an inline keyboard for selecting which task field to edit.
 
+    When *task_id* is provided, a toggle-completion button is included
+    so the user can flip the task status without leaving the edit screen.
+
+    Args:
+        task_id: ID of the task being edited (optional — if ``None``,
+            the toggle button is omitted for backwards compatibility).
+        is_completed: Current completion status of the task.
+
     Returns:
-        InlineKeyboardMarkup with 4 field buttons + cancel.
+        InlineKeyboardMarkup with field buttons, optional toggle, and cancel.
     """
     builder = InlineKeyboardBuilder()
+    if task_id is not None:
+        if is_completed:
+            builder.button(
+                text="❌ Отметить невыполненным",
+                callback_data=f"task:toggle:{task_id}",
+            )
+        else:
+            builder.button(
+                text="✅ Отметить выполненным",
+                callback_data=f"task:toggle:{task_id}",
+            )
     builder.button(text="📝 Название", callback_data="edit_task_field:title")
     builder.button(text="📅 Дата", callback_data="edit_task_field:date")
     builder.button(text="🕐 Время начала", callback_data="edit_task_field:start_time")
     builder.button(text="🕐 Время окончания", callback_data="edit_task_field:end_time")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
-    builder.adjust(1, 1, 1, 1, 1)
+    row_spec = []
+    if task_id is not None:
+        row_spec.append(1)  # toggle button row
+    row_spec.extend([1, 1, 1, 1, 1])  # 4 fields + cancel
+    builder.adjust(*row_spec)
     return builder.as_markup()
 
 

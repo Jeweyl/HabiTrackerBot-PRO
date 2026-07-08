@@ -48,6 +48,7 @@ async def _patch_generator_db(
     async_session: AsyncSession,
 ) -> None:
     """Redirect habit_generator.get_db to the in-memory test session."""
+
     @asynccontextmanager
     async def _fake_get_db():
         yield async_session
@@ -124,6 +125,7 @@ async def client(
     the in-memory SQLite session instead of the real PostgreSQL connection.
     A test user is pre-created in the test database.
     """
+
     # Patch get_db in the tasks module to yield the test session
     @asynccontextmanager
     async def _fake_get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -227,7 +229,8 @@ async def test_calendar_day_selection(client) -> None:
 
 @pytest.mark.asyncio
 async def test_full_task_creation_with_end_time(
-    client, async_session,
+    client,
+    async_session,
 ) -> None:
     """Create a task end-to-end: date → title → start → end → confirm → save."""
     # 1. Start wizard → calendar
@@ -312,7 +315,8 @@ async def test_task_without_end_time(client, async_session) -> None:
 
 @pytest.mark.asyncio
 async def test_conflict_with_concrete_end_time(
-    client, async_session,
+    client,
+    async_session,
 ) -> None:
     """Adding a task that overlaps an existing one should fail."""
     # Pre-create a task 09:00–11:00
@@ -339,9 +343,7 @@ async def test_conflict_with_concrete_end_time(
     assert msg.reply_markup is not None
     # Verify the conflict resolution buttons are present
     all_cb = {
-        btn.callback_data
-        for row in msg.reply_markup.inline_keyboard
-        for btn in row
+        btn.callback_data for row in msg.reply_markup.inline_keyboard for btn in row
     }
     assert "conflict:force_add" in all_cb
     assert "conflict:edit_schedule" in all_cb
@@ -362,7 +364,8 @@ async def test_conflict_with_concrete_end_time(
 
 @pytest.mark.asyncio
 async def test_conflict_with_open_ended_task(
-    client, async_session,
+    client,
+    async_session,
 ) -> None:
     """Adding a task that overlaps an open-ended existing task should fail."""
     # Pre-create an open-ended task at 09:00
@@ -779,7 +782,7 @@ async def _create_habit(
 
 @pytest.mark.asyncio
 async def test_task_management_menu(client, async_session) -> None:
-    """Task management keyboard shows correct buttons."""
+    """Task management keyboard shows correct buttons including toggle."""
     user_id = await _ensure_user(async_session, 123456)
     today = date.today()
     task = await _create_task(
@@ -792,7 +795,8 @@ async def test_task_management_menu(client, async_session) -> None:
     )
 
     msg = await client.send_callback(
-        f"task:manage:{task.id}", message_text="schedule",
+        f"task:manage:{task.id}",
+        message_text="schedule",
     )
     assert "Управление задачей" in msg.text
     assert "Управляемая задача" in msg.text
@@ -801,6 +805,9 @@ async def test_task_management_menu(client, async_session) -> None:
     all_cb = {
         btn.callback_data for row in msg.reply_markup.inline_keyboard for btn in row
     }
+    all_texts = {btn.text for row in msg.reply_markup.inline_keyboard for btn in row}
+    assert f"task:toggle:{task.id}" in all_cb
+    assert "✅ Отметить выполненным" in all_texts
     assert f"task:delete:{task.id}" in all_cb
     assert f"task:edit:{task.id}" in all_cb
     # No habit linked → reset button should NOT appear
@@ -835,14 +842,16 @@ async def test_edit_task_title(client, async_session) -> None:
 
     # Select title field
     await client.send_callback(
-        "edit_task_field:title", message_text="edit field",
+        "edit_task_field:title",
+        message_text="edit field",
     )
     # Enter new title
     await client.send_message("Новое название")
 
     # Confirm changes
     await client.send_callback(
-        "task:confirm_changes", message_text="edit field",
+        "task:confirm_changes",
+        message_text="edit field",
     )
 
     # Verify DB
@@ -879,11 +888,13 @@ async def test_edit_start_time_auto_extension(client, async_session) -> None:
 
     # Select start_time field
     await client.send_callback(
-        "edit_task_field:start_time", message_text="edit field",
+        "edit_task_field:start_time",
+        message_text="edit field",
     )
     # Choose new start time 14:00 (old duration = 2h, expected end = 16:00)
     msg = await client.send_callback(
-        "time:14:00", message_text="start time selection",
+        "time:14:00",
+        message_text="start time selection",
     )
     assert "14:00" in msg.text
     assert "16:00" in msg.text  # auto-extended
@@ -891,7 +902,8 @@ async def test_edit_start_time_auto_extension(client, async_session) -> None:
 
     # Confirm changes
     await client.send_callback(
-        "task:confirm_changes", message_text="edit field",
+        "task:confirm_changes",
+        message_text="edit field",
     )
 
     # Verify DB
@@ -929,23 +941,27 @@ async def test_edit_end_time_manual(client, async_session) -> None:
 
     # First change end_time manually
     await client.send_callback(
-        "edit_task_field:end_time", message_text="edit field",
+        "edit_task_field:end_time",
+        message_text="edit field",
     )
     await client.send_callback("time:13:00", message_text="end time selection")
 
     # Now change start_time — should NOT auto-extend
     await client.send_callback(
-        "edit_task_field:start_time", message_text="edit field",
+        "edit_task_field:start_time",
+        message_text="edit field",
     )
     msg = await client.send_callback(
-        "time:14:00", message_text="start time selection",
+        "time:14:00",
+        message_text="start time selection",
     )
     # Should NOT mention auto-extension
     assert "автоматически" not in msg.text.lower()
 
     # Confirm and verify end_time stayed at 13:00
     await client.send_callback(
-        "task:confirm_changes", message_text="edit field",
+        "task:confirm_changes",
+        message_text="edit field",
     )
 
     from sqlalchemy import select
@@ -982,10 +998,12 @@ async def test_edit_start_time_out_of_day_bounds(client, async_session) -> None:
 
     # Change start_time to 22:00 (end would be 00:00 next day → out of bounds)
     await client.send_callback(
-        "edit_task_field:start_time", message_text="edit field",
+        "edit_task_field:start_time",
+        message_text="edit field",
     )
     msg = await client.send_callback(
-        "time:22:00", message_text="start time selection",
+        "time:22:00",
+        message_text="start time selection",
     )
     assert "границы" in msg.text.lower() or "23:59" in msg.text
 
@@ -1031,7 +1049,8 @@ async def test_reset_task_to_habit(client, async_session) -> None:
 
     # Open management — should show reset button
     msg = await client.send_callback(
-        f"task:manage:{task.id}", message_text="schedule",
+        f"task:manage:{task.id}",
+        message_text="schedule",
     )
     all_cb = {
         btn.callback_data for row in msg.reply_markup.inline_keyboard for btn in row
@@ -1040,12 +1059,14 @@ async def test_reset_task_to_habit(client, async_session) -> None:
 
     # Click reset
     await client.send_callback(
-        f"task:reset:{task.id}", message_text="management",
+        f"task:reset:{task.id}",
+        message_text="management",
     )
 
     # Confirm changes to persist reset
     await client.send_callback(
-        "task:confirm_changes", message_text="management",
+        "task:confirm_changes",
+        message_text="management",
     )
 
     # Verify DB — time restored to habit template
@@ -1093,7 +1114,8 @@ async def test_reset_task_keeps_date(client, async_session) -> None:
 
     # Confirm
     await client.send_callback(
-        "task:confirm_changes", message_text="management",
+        "task:confirm_changes",
+        message_text="management",
     )
 
     from sqlalchemy import select
@@ -1128,7 +1150,8 @@ async def test_cancel_changes(client, async_session) -> None:
     await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
     await client.send_callback(f"task:edit:{task.id}", message_text="management")
     await client.send_callback(
-        "edit_task_field:title", message_text="edit field",
+        "edit_task_field:title",
+        message_text="edit field",
     )
     await client.send_message("Changed")
 
@@ -1177,13 +1200,15 @@ async def test_edit_task_conflict_check(client, async_session) -> None:
     await client.send_callback(f"task:manage:{task_a.id}", message_text="schedule")
     await client.send_callback(f"task:edit:{task_a.id}", message_text="management")
     await client.send_callback(
-        "edit_task_field:start_time", message_text="edit field",
+        "edit_task_field:start_time",
+        message_text="edit field",
     )
     await client.send_callback("time:14:00", message_text="start time selection")
 
     # Confirm — should trigger conflict
     msg = await client.send_callback(
-        "task:confirm_changes", message_text="edit field",
+        "task:confirm_changes",
+        message_text="edit field",
     )
     assert "конфликт" in msg.text.lower()
     assert msg.reply_markup is not None
@@ -1192,3 +1217,144 @@ async def test_edit_task_conflict_check(client, async_session) -> None:
         btn.callback_data for row in msg.reply_markup.inline_keyboard for btn in row
     }
     assert "conflict:force_add" in all_cb
+
+
+# ===========================================================================
+# Test: toggle from action menu (EditTaskFSM.choose_action)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_toggle_from_action_menu(client, async_session) -> None:
+    """Toggling completion from the action menu flips status and stays there."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(9, 0),
+        end=time(10, 0),
+        title="Toggle me",
+    )
+    assert task.is_completed is False
+
+    # Open action menu
+    await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
+
+    # Tap toggle
+    msg = await client.send_callback(
+        f"task:toggle:{task.id}",
+        message_text="Управление задачей",
+    )
+    # Verify keyboard updated — toggle button now shows "Отметить невыполненным"
+    all_texts = {btn.text for row in msg.reply_markup.inline_keyboard for btn in row}
+    assert "❌ Отметить невыполненным" in all_texts
+
+    # Verify DB change
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    updated = result.scalar_one()
+    assert updated.is_completed is True
+
+
+# ===========================================================================
+# Test: toggle from edit menu (EditTaskFSM.edit_field)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_toggle_from_edit_menu(client, async_session) -> None:
+    """Toggling completion from the edit menu flips status and stays there."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(9, 0),
+        end=time(10, 0),
+        title="Edit toggle",
+    )
+    assert task.is_completed is False
+
+    # Open action menu → edit
+    await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
+    await client.send_callback(f"task:edit:{task.id}", message_text="management")
+
+    # Tap toggle from edit menu
+    msg = await client.send_callback(
+        f"task:toggle:{task.id}",
+        message_text="Что вы хотите изменить",
+    )
+    # Verify keyboard updated — toggle button now shows "Отметить невыполненным"
+    all_texts = {btn.text for row in msg.reply_markup.inline_keyboard for btn in row}
+    assert "❌ Отметить невыполненным" in all_texts
+    # Edit field buttons should still be present
+    assert "📝 Название" in all_texts
+    assert "📅 Дата" in all_texts
+
+    # Verify DB change
+    from sqlalchemy import select
+
+    stmt = select(Task).where(Task.id == task.id)
+    result = await async_session.execute(stmt)
+    updated = result.scalar_one()
+    assert updated.is_completed is True
+
+
+# ===========================================================================
+# Test: action menu back navigation returns to schedule
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_action_menu_back_navigation(client, async_session) -> None:
+    """Back button in the action menu returns to the schedule view."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(9, 0),
+        end=time(10, 0),
+        title="Back test",
+    )
+
+    # Open action menu
+    await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
+
+    # Press back
+    msg = await client.send_callback("nav:back", message_text="Управление задачей")
+    assert "Расписание" in msg.text
+    assert "Back test" in msg.text
+
+
+# ===========================================================================
+# Test: action menu main menu navigation
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_action_menu_main_menu_navigation(client, async_session) -> None:
+    """Main menu button in the action menu returns to the main menu."""
+    user_id = await _ensure_user(async_session, 123456)
+    today = date.today()
+    task = await _create_task(
+        async_session,
+        user_id=user_id,
+        date_val=today,
+        start=time(9, 0),
+        end=time(10, 0),
+        title="Main menu test",
+    )
+
+    # Open action menu
+    await client.send_callback(f"task:manage:{task.id}", message_text="schedule")
+
+    # Press main menu (nav:cancel)
+    msg = await client.send_callback("nav:cancel", message_text="Управление задачей")
+    assert "отменено" in msg.text.lower()
