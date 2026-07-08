@@ -187,8 +187,10 @@ async def check_habit_conflicts(
 
         # Time slot overlap
         if _time_slots_overlap(
-            start_time, end_time,
-            habit.start_time, habit.end_time,
+            start_time,
+            end_time,
+            habit.start_time,
+            habit.end_time,
         ):
             conflicting.append(habit)
 

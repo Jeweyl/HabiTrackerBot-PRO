@@ -8,6 +8,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Integer,
     JSON,
     String,
     Time,
@@ -45,6 +46,12 @@ class User(Base):
     language: Mapped[str] = mapped_column(String(10), default="ru", server_default="ru")
     timezone: Mapped[str] = mapped_column(
         String(50), default="UTC", server_default="UTC"
+    )
+    reminder_time: Mapped[Optional[time]] = mapped_column(
+        Time, nullable=True, default=None
+    )
+    check_interval: Mapped[int] = mapped_column(
+        Integer, default=15, server_default="15"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

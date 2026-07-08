@@ -773,3 +773,135 @@ def get_habit_conflict_resolution_keyboard(
     row_spec.extend([1, 1])
     builder.adjust(*row_spec)
     return builder.as_markup()
+
+
+# =============================================================================
+# Settings keyboards
+# =============================================================================
+
+
+def get_settings_menu_keyboard() -> InlineKeyboardMarkup:
+    """Build the main settings menu keyboard.
+
+    Returns:
+        Inline keyboard with language, timezone, reminder_time,
+        check_interval buttons plus Back and Main menu.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🌐 Язык", callback_data="settings:language")
+    builder.button(text="🕐 Часовой пояс", callback_data="settings:timezone")
+    builder.button(text="⏰ Время уведомления", callback_data="settings:reminder_time")
+    builder.button(text="⏱ Интервал проверки", callback_data="settings:check_interval")
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
+    builder.adjust(1, 1, 1, 1, 1, 1)
+    return builder.as_markup()
+
+
+def get_language_keyboard() -> InlineKeyboardMarkup:
+    """Build the language selection keyboard.
+
+    Returns:
+        Inline keyboard with a grid of language codes: RU, EN, FR, ES, JP.
+    """
+    languages = [
+        ("RU", "settings:set_language:ru"),
+        ("EN", "settings:set_language:en"),
+        ("FR", "settings:set_language:fr"),
+        ("ES", "settings:set_language:es"),
+        ("JP", "settings:set_language:jp"),
+    ]
+    builder = InlineKeyboardBuilder()
+    for label, data in languages:
+        builder.button(text=label, callback_data=data)
+    builder.button(text="⬅️ Назад", callback_data="settings:back")
+    builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
+    builder.adjust(3, 2, 1, 1)
+    return builder.as_markup()
+
+
+def get_timezone_keyboard() -> InlineKeyboardMarkup:
+    """Build the timezone selection keyboard.
+
+    Returns:
+        Inline keyboard with major UTC offsets from -12 to +14.
+    """
+    timezones = [
+        ("UTC-12", "settings:set_timezone:-12"),
+        ("UTC-11", "settings:set_timezone:-11"),
+        ("UTC-10", "settings:set_timezone:-10"),
+        ("UTC-9", "settings:set_timezone:-9"),
+        ("UTC-8", "settings:set_timezone:-8"),
+        ("UTC-7", "settings:set_timezone:-7"),
+        ("UTC-6", "settings:set_timezone:-6"),
+        ("UTC-5", "settings:set_timezone:-5"),
+        ("UTC-4", "settings:set_timezone:-4"),
+        ("UTC-3", "settings:set_timezone:-3"),
+        ("UTC-2", "settings:set_timezone:-2"),
+        ("UTC-1", "settings:set_timezone:-1"),
+        ("UTC+0", "settings:set_timezone:+0"),
+        ("UTC+1", "settings:set_timezone:+1"),
+        ("UTC+2", "settings:set_timezone:+2"),
+        ("UTC+3", "settings:set_timezone:+3"),
+        ("UTC+4", "settings:set_timezone:+4"),
+        ("UTC+5", "settings:set_timezone:+5"),
+        ("UTC+6", "settings:set_timezone:+6"),
+        ("UTC+7", "settings:set_timezone:+7"),
+        ("UTC+8", "settings:set_timezone:+8"),
+        ("UTC+9", "settings:set_timezone:+9"),
+        ("UTC+10", "settings:set_timezone:+10"),
+        ("UTC+11", "settings:set_timezone:+11"),
+        ("UTC+12", "settings:set_timezone:+12"),
+        ("UTC+13", "settings:set_timezone:+13"),
+        ("UTC+14", "settings:set_timezone:+14"),
+    ]
+    builder = InlineKeyboardBuilder()
+    for label, data in timezones:
+        builder.button(text=label, callback_data=data)
+    builder.button(text="⬅️ Назад", callback_data="settings:back")
+    builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
+    builder.adjust(4, 4, 4, 4, 4, 4, 3, 1, 1)
+    return builder.as_markup()
+
+
+def get_reminder_time_keyboard() -> InlineKeyboardMarkup:
+    """Build the reminder time selection keyboard.
+
+    Returns:
+        Inline keyboard with 24 hour slots (00:00–23:00) plus an «Отключить»
+        button and navigation.
+    """
+    builder = InlineKeyboardBuilder()
+    for hour in range(24):
+        label = f"{hour:02d}:00"
+        data = f"settings:set_reminder:{hour:02d}:00"
+        builder.button(text=label, callback_data=data)
+    builder.button(text="🔕 Отключить", callback_data="reminder:off")
+    builder.button(text="⬅️ Назад", callback_data="settings:back")
+    builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
+    builder.adjust(6, 6, 6, 6, 1, 1, 1)
+    return builder.as_markup()
+
+
+def get_check_interval_keyboard() -> InlineKeyboardMarkup:
+    """Build the check interval selection keyboard.
+
+    Returns:
+        Inline keyboard with interval options: 5, 10, 15, 20, 30, 45, 60 min.
+    """
+    intervals = [
+        ("5 мин", "settings:set_interval:5"),
+        ("10 мин", "settings:set_interval:10"),
+        ("15 мин", "settings:set_interval:15"),
+        ("20 мин", "settings:set_interval:20"),
+        ("30 мин", "settings:set_interval:30"),
+        ("45 мин", "settings:set_interval:45"),
+        ("60 мин", "settings:set_interval:60"),
+    ]
+    builder = InlineKeyboardBuilder()
+    for label, data in intervals:
+        builder.button(text=label, callback_data=data)
+    builder.button(text="⬅️ Назад", callback_data="settings:back")
+    builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
+    builder.adjust(2, 2, 2, 1, 1, 1)
+    return builder.as_markup()

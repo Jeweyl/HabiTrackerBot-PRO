@@ -179,7 +179,9 @@ async def test_daily_generates_30_tasks(habit_client, async_session) -> None:
     habit = await _create_habit(async_session, user_id=user_id, frequency="daily")
 
     await generate_tasks_for_habit(
-        habit.id, days_ahead=30, today_override=FIXED_TODAY,
+        habit.id,
+        days_ahead=30,
+        today_override=FIXED_TODAY,
     )
 
     stmt = select(Task).where(Task.habit_id == habit.id).order_by(Task.date)
@@ -202,11 +204,15 @@ async def test_weekdays_only_mon_fri(habit_client, async_session) -> None:
     """Weekdays habit generates tasks only on Monday–Friday."""
     user_id = await _ensure_user(async_session, 123456)
     habit = await _create_habit(
-        async_session, user_id=user_id, frequency="weekdays",
+        async_session,
+        user_id=user_id,
+        frequency="weekdays",
     )
 
     await generate_tasks_for_habit(
-        habit.id, days_ahead=30, today_override=FIXED_TODAY,
+        habit.id,
+        days_ahead=30,
+        today_override=FIXED_TODAY,
     )
 
     stmt = select(Task).where(Task.habit_id == habit.id).order_by(Task.date)
@@ -230,11 +236,15 @@ async def test_weekends_only_sat_sun(habit_client, async_session) -> None:
     """Weekends habit generates tasks only on Saturday–Sunday."""
     user_id = await _ensure_user(async_session, 123456)
     habit = await _create_habit(
-        async_session, user_id=user_id, frequency="weekends",
+        async_session,
+        user_id=user_id,
+        frequency="weekends",
     )
 
     await generate_tasks_for_habit(
-        habit.id, days_ahead=30, today_override=FIXED_TODAY,
+        habit.id,
+        days_ahead=30,
+        today_override=FIXED_TODAY,
     )
 
     stmt = select(Task).where(Task.habit_id == habit.id).order_by(Task.date)
@@ -260,10 +270,14 @@ async def test_no_duplicates(habit_client, async_session) -> None:
     habit = await _create_habit(async_session, user_id=user_id, frequency="daily")
 
     await generate_tasks_for_habit(
-        habit.id, days_ahead=30, today_override=FIXED_TODAY,
+        habit.id,
+        days_ahead=30,
+        today_override=FIXED_TODAY,
     )
     await generate_tasks_for_habit(
-        habit.id, days_ahead=30, today_override=FIXED_TODAY,
+        habit.id,
+        days_ahead=30,
+        today_override=FIXED_TODAY,
     )
 
     stmt = select(Task).where(Task.habit_id == habit.id)
@@ -285,7 +299,9 @@ async def test_null_end_time(habit_client, async_session) -> None:
     )
 
     await generate_tasks_for_habit(
-        habit.id, days_ahead=30, today_override=FIXED_TODAY,
+        habit.id,
+        days_ahead=30,
+        today_override=FIXED_TODAY,
     )
 
     stmt = select(Task).where(Task.habit_id == habit.id)
@@ -306,7 +322,9 @@ async def test_lazy_generation_on_view(habit_client, async_session) -> None:
     """Viewing a schedule triggers lazy generation for that date."""
     user_id = await _ensure_user(async_session, 123456)
     await _create_habit(
-        async_session, user_id=user_id, frequency="daily",
+        async_session,
+        user_id=user_id,
+        frequency="daily",
     )
 
     target_date = FIXED_TODAY + timedelta(days=5)
@@ -358,7 +376,8 @@ async def test_lazy_generation_conflict(habit_client, async_session) -> None:
 
     # Verify habit task was NOT created
     stmt = select(Task).where(
-        Task.habit_id == habit.id, Task.date == target_date,
+        Task.habit_id == habit.id,
+        Task.date == target_date,
     )
     result = await async_session.execute(stmt)
     assert result.scalar_one_or_none() is None
@@ -374,7 +393,9 @@ async def test_lazy_generation_skips_existing(habit_client, async_session) -> No
     """Lazy generation skips dates where a task already exists."""
     user_id = await _ensure_user(async_session, 123456)
     habit = await _create_habit(
-        async_session, user_id=user_id, frequency="daily",
+        async_session,
+        user_id=user_id,
+        frequency="daily",
     )
 
     target_date = FIXED_TODAY + timedelta(days=7)
@@ -395,7 +416,8 @@ async def test_lazy_generation_skips_existing(habit_client, async_session) -> No
 
     # Verify still exactly 1 task (the existing one)
     stmt = select(Task).where(
-        Task.habit_id == habit.id, Task.date == target_date,
+        Task.habit_id == habit.id,
+        Task.date == target_date,
     )
     result = await async_session.execute(stmt)
     tasks = result.scalars().all()
@@ -410,19 +432,24 @@ async def test_lazy_generation_skips_existing(habit_client, async_session) -> No
 
 @pytest.mark.asyncio
 async def test_edit_frequency_regenerates_tasks(
-    habit_client, async_session,
+    habit_client,
+    async_session,
 ) -> None:
     """After changing frequency, old tasks are deleted and new ones created."""
     from sqlalchemy import delete
 
     user_id = await _ensure_user(async_session, 123456)
     habit = await _create_habit(
-        async_session, user_id=user_id, frequency="daily",
+        async_session,
+        user_id=user_id,
+        frequency="daily",
     )
 
     # Generate initial daily tasks
     await generate_tasks_for_habit(
-        habit.id, days_ahead=30, today_override=FIXED_TODAY,
+        habit.id,
+        days_ahead=30,
+        today_override=FIXED_TODAY,
     )
 
     # Verify 30 daily tasks
@@ -437,7 +464,9 @@ async def test_edit_frequency_regenerates_tasks(
     habit.frequency = "weekdays"
     await async_session.commit()
     await generate_tasks_for_habit(
-        habit.id, days_ahead=30, today_override=FIXED_TODAY,
+        habit.id,
+        days_ahead=30,
+        today_override=FIXED_TODAY,
     )
 
     # Verify new count matches weekdays

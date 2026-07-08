@@ -505,5 +505,3 @@ async def process_confirmation(callback: CallbackQuery, state: FSMContext) -> No
             "Хорошо, может быть, в другой раз!",
             reply_markup=get_main_menu_keyboard(),
         )
-
-

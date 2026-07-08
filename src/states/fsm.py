@@ -139,6 +139,24 @@ class ConflictHabitFSM(StatesGroup):
     choose_action = State()
 
 
+class SettingsFSM(StatesGroup):
+    """FSM for settings menu and configuration flows.
+
+    States:
+        menu: Main settings menu.
+        language: Language selection.
+        timezone: Timezone selection.
+        reminder_time: Reminder time selection.
+        check_interval: Check interval selection.
+    """
+
+    menu = State()
+    language = State()
+    timezone = State()
+    reminder_time = State()
+    check_interval = State()
+
+
 class HabitFSM(StatesGroup):
     """FSM group for the two-level habit navigation menu.
 
