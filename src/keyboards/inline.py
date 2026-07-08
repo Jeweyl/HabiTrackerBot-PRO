@@ -7,12 +7,12 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 MAIN_MENU_BUTTONS: list[tuple[str, str]] = [
-    ("📋 Мои привычки", "main_menu:habits"),
-    ("➕ Новая привычка", "main_menu:new_habit"),
-    ("➕ Новая задача", "main_menu:new_task"),
-    ("📅 Расписание на сегодня", "main_menu:today_tasks"),
+    ("📋 Привычки", "main_menu:habits"),
+    ("➕ Создать привычку", "main_menu:new_habit"),
+    ("➕ Добавить задачу", "main_menu:new_task"),
+    ("📅 Задачи на сегодня", "main_menu:today_tasks"),
     ("📅 Расписание", "main_menu:view_schedule"),
-    ("✅ Отметить выполненные дела", "main_menu:complete_tasks"),
+    ("✅ Отметить выполненные", "main_menu:complete_tasks"),
     ("📊 Статистика", "main_menu:statistics"),
     ("⚙️ Настройки", "main_menu:settings"),
     ("❓ Помощь", "main_menu:help"),

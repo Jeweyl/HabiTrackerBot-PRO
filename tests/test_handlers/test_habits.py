@@ -51,6 +51,7 @@ async def _patch_generator_db(
     async_session: AsyncSession,
 ) -> None:
     """Redirect habit_generator.get_db to the in-memory test session."""
+
     @asynccontextmanager
     async def _fake_get_db():
         yield async_session
@@ -130,7 +131,7 @@ async def test_new_habit_start(
     full_client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify that clicking "➕ Новая привычка" starts the wizard."""
+    """Verify that clicking "➕ Создать привычку" starts the wizard."""
     await _create_user(async_session)
 
     with patch(
