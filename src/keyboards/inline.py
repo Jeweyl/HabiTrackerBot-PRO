@@ -9,10 +9,10 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 MAIN_MENU_BUTTONS: list[tuple[str, str]] = [
     ("📋 Мои привычки", "main_menu:habits"),
     ("➕ Новая привычка", "main_menu:new_habit"),
-    ("✅ Новая задача", "main_menu:new_task"),
-    ("Посмотреть список дел на сегодня", "main_menu:today_tasks"),
-    ("📅 Посмотреть расписание", "main_menu:view_schedule"),
-    ("Отметить выполненные дела", "main_menu:complete_tasks"),
+    ("➕ Новая задача", "main_menu:new_task"),
+    ("📅 Расписание на сегодня", "main_menu:today_tasks"),
+    ("📅 Расписание", "main_menu:view_schedule"),
+    ("✅ Отметить выполненные дела", "main_menu:complete_tasks"),
     ("📊 Статистика", "main_menu:statistics"),
     ("⚙️ Настройки", "main_menu:settings"),
     ("❓ Помощь", "main_menu:help"),
@@ -198,8 +198,19 @@ WEEKDAY_HEADERS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 """Column headers for the calendar grid."""
 
 MONTH_NAMES = [
-    "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+    "",
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
 ]
 """Russian month names indexed by month number (1‑based)."""
 
@@ -530,9 +541,7 @@ def get_edit_task_field_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="📝 Название", callback_data="edit_task_field:title")
     builder.button(text="📅 Дата", callback_data="edit_task_field:date")
     builder.button(text="🕐 Время начала", callback_data="edit_task_field:start_time")
-    builder.button(
-        text="🕐 Время окончания", callback_data="edit_task_field:end_time"
-    )
+    builder.button(text="🕐 Время окончания", callback_data="edit_task_field:end_time")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 1, 1)
     return builder.as_markup()
@@ -574,6 +583,32 @@ def get_cancel_input_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="❌ Отмена", callback_data="input:cancel")
     builder.button(text="🏠 В главное меню", callback_data="input:goto_main")
     builder.adjust(2)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# AI assistant keyboard — Yes / No / Skip / Back / Cancel
+# ---------------------------------------------------------------------------
+
+
+def get_ai_assistant_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for the AI assistant dialog flow.
+
+    Provides action buttons for navigating the AI assistant wizard:
+    ``✅ Да`` (assist:yes), ``❌ Нет`` (assist:no),
+    ``⏭ Пропустить`` (assist:skip), ``⬅️ Назад`` (nav:back),
+    ``❌ Отмена`` (nav:cancel).
+
+    Returns:
+        InlineKeyboardMarkup with two rows: Yes/No/Skip and Back/Cancel.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Да", callback_data="assist:yes")
+    builder.button(text="❌ Нет", callback_data="assist:no")
+    builder.button(text="⏭ Пропустить", callback_data="assist:skip")
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(3, 2)
     return builder.as_markup()
 
 

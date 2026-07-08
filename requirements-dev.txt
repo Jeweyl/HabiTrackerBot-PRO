@@ -4,3 +4,4 @@ pytest-asyncio>=0.23,<1.0
 black>=24.0,<25.0
 ruff>=0.4,<1.0
 aiosqlite>=0.20,<1.0
+aioresponses>=0.7,<1.0

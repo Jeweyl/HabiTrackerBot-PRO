@@ -100,6 +100,32 @@ class EditTaskFSM(StatesGroup):
     confirm_changes = State()
 
 
+class AIAssistantFSM(StatesGroup):
+    """FSM group for the AI-assisted SMART goal wizard.
+
+    Guides the user through a conversational flow where the AI
+    collects information, generates recommendations, and creates
+    habits and tasks automatically.
+
+    Attributes:
+        start: Initial greeting and title input.
+        ask_experience: Ask about the user's experience level.
+        ask_duration: Ask how long they've been doing the activity.
+        ask_details: Ask for more details (free-text).
+        ask_health: Ask about health issues (optional).
+        confirm_recommendations: Show AI recommendations and ask for confirmation.
+        finalize: Create habit and tasks (internal, not user-facing).
+    """
+
+    start = State()
+    ask_experience = State()
+    ask_duration = State()
+    ask_details = State()
+    ask_health = State()
+    confirm_recommendations = State()
+    finalize = State()
+
+
 class ConflictHabitFSM(StatesGroup):
     """FSM group for resolving habit time conflicts.
 

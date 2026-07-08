@@ -593,3 +593,259 @@ async def test_delete_habit_with_confirmation(
     stmt = select(Habit).where(Habit.id == habit.id)
     result = await async_session.execute(stmt)
     assert result.scalar_one_or_none() is None
+
+
+# ===================================================================
+# Conflict detection — creation
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_create_habit_no_conflict(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Create a habit that does not conflict — it should be saved normally."""
+    user = await _create_user(async_session)
+    # Existing habit: 08:00-09:00 daily
+    await _create_habit(async_session, user, "Бег", 8, 9, "daily")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_message("Чтение")
+        await full_client.send_callback("time:10:00")
+        await full_client.send_callback("time:11:00")
+        msg = await full_client.send_callback("freq:daily")
+        assert "Привычка успешно создана" in msg.text
+        assert "Чтение" in msg.text
+
+    stmt = select(Habit).where(Habit.title == "Чтение")
+    result = await async_session.execute(stmt)
+    habit = result.scalar_one()
+    assert habit.start_time == time(10, 0)
+    assert habit.end_time == time(11, 0)
+    assert habit.frequency == "daily"
+
+
+@pytest.mark.asyncio
+async def test_create_habit_with_conflict(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Create a habit that overlaps time+days with an existing one — conflict."""
+    user = await _create_user(async_session)
+    await _create_habit(async_session, user, "Бег", 8, 9, "daily")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_message("Чтение")
+        await full_client.send_callback("time:08:00")
+        # End time after existing 09:00 → still overlaps
+        msg = await full_client.send_callback("time:09:00")
+        assert "Выберите периодичность" in msg.text
+
+        msg = await full_client.send_callback("freq:daily")
+        assert "конфликтует" in msg.text
+        assert msg.reply_markup is not None
+
+    # Habit must NOT be saved
+    stmt = select(Habit).where(Habit.title == "Чтение")
+    result = await async_session.execute(stmt)
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_create_habit_force_add(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Conflict → force_add saves the habit despite the conflict."""
+    user = await _create_user(async_session)
+    await _create_habit(async_session, user, "Бег", 8, 9, "daily")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_message("Форс")
+        await full_client.send_callback("time:08:00")
+        await full_client.send_callback("time:09:00")
+        await full_client.send_callback("freq:daily")
+        # Now in ConflictHabitFSM
+
+        msg = await full_client.send_callback("conflict_habit:force_add")
+        assert "Привычка успешно создана" in msg.text
+        assert "Форс" in msg.text
+
+    stmt = select(Habit).where(Habit.title == "Форс")
+    result = await async_session.execute(stmt)
+    habit = result.scalar_one()
+    assert habit.start_time == time(8, 0)
+    assert habit.frequency == "daily"
+
+
+# ===================================================================
+# Conflict detection — editing
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_edit_habit_frequency_creates_conflict(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Editing frequency to create a day+time overlap triggers conflict."""
+    user = await _create_user(async_session)
+    # A: 08:00-09:00 daily
+    await _create_habit(async_session, user, "A", 8, 9, "daily")
+    # B: 08:00-09:00 weekends (no conflict — different days)
+    habit_b = await _create_habit(async_session, user, "B", 8, 9, "weekends")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit_b.id}")
+        await full_client.send_callback("edit_field:frequency")
+        # Pick daily → now overlaps with A
+        msg = await full_client.send_callback("freq:daily")
+        assert "конфликтует" in msg.text
+
+    # B should NOT have been updated
+    await async_session.refresh(habit_b)
+    assert habit_b.frequency == "weekends"
+
+
+@pytest.mark.asyncio
+async def test_edit_habit_time_creates_conflict(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Editing a habit's time to overlap with an existing one triggers conflict."""
+    user = await _create_user(async_session)
+    # A: 08:00-09:00 daily
+    await _create_habit(async_session, user, "A", 8, 9, "daily")
+    # B: 10:00-11:00 daily (no conflict)
+    habit_b = await _create_habit(async_session, user, "B", 10, 11, "daily")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit_b.id}")
+        await full_client.send_callback("edit_field:start_time")
+        # Pick 08:00 → now overlaps with A
+        msg = await full_client.send_callback("time:08:00")
+        assert "конфликтует" in msg.text
+
+    # B should NOT have been updated
+    await async_session.refresh(habit_b)
+    assert habit_b.start_time == time(10, 0)
+
+
+@pytest.mark.asyncio
+async def test_edit_habit_change_time_resolves(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Trigger a conflict, then resolve it by picking a non-conflicting time."""
+    user = await _create_user(async_session)
+    # A: 08:00-09:00 daily
+    await _create_habit(async_session, user, "A", 8, 9, "daily")
+    # B: 10:00-11:00 daily
+    habit_b = await _create_habit(async_session, user, "B", 10, 11, "daily")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit_b.id}")
+        await full_client.send_callback("edit_field:start_time")
+        # Pick 08:00 → conflict!
+        await full_client.send_callback("time:08:00")
+
+        # Change time via conflict resolution
+        msg = await full_client.send_callback("conflict_habit:change_time")
+        assert "Выберите новое время начала" in msg.text
+
+        # Pick 09:00 — non-conflicting (after A ends at 09:00, before B's end at 11:00)
+        await full_client.send_callback("time:09:00")
+
+    # B should have been updated
+    await async_session.refresh(habit_b)
+    assert habit_b.start_time == time(9, 0)
+
+
+# ===================================================================
+# Conflict keyboard layout
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_conflict_keyboard_creation_buttons(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Conflict keyboard during creation has the right 5 buttons."""
+    user = await _create_user(async_session)
+    await _create_habit(async_session, user, "Бег", 8, 9, "daily")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_message("Y")
+        await full_client.send_callback("time:08:00")
+        await full_client.send_callback("time:09:00")
+        msg = await full_client.send_callback("freq:daily")
+
+    keyboard = msg.reply_markup.inline_keyboard
+    all_cb = {btn.callback_data for row in keyboard for btn in row}
+
+    assert "conflict_habit:change_time" in all_cb
+    assert "conflict_habit:change_frequency" in all_cb
+    assert "conflict_habit:force_add" in all_cb
+    assert "nav:cancel" in all_cb
+    # Creation keyboard must NOT include edit_tasks
+    assert "conflict_habit:edit_tasks" not in all_cb
+
+
+@pytest.mark.asyncio
+async def test_conflict_keyboard_edit_buttons(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Conflict keyboard during editing has all 6 buttons including edit_tasks."""
+    user = await _create_user(async_session)
+    await _create_habit(async_session, user, "A", 8, 9, "daily")
+    habit_b = await _create_habit(async_session, user, "B", 10, 11, "daily")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback(f"habit:edit:{habit_b.id}")
+        await full_client.send_callback("edit_field:start_time")
+        msg = await full_client.send_callback("time:08:00")
+
+    keyboard = msg.reply_markup.inline_keyboard
+    all_cb = {btn.callback_data for row in keyboard for btn in row}
+
+    assert "conflict_habit:change_time" in all_cb
+    assert "conflict_habit:change_frequency" in all_cb
+    assert "conflict_habit:edit_schedule" in all_cb
+    assert "conflict_habit:edit_tasks" in all_cb
+    assert "conflict_habit:force_add" in all_cb
+    assert "nav:cancel" in all_cb

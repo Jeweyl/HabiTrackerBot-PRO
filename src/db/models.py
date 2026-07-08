@@ -3,7 +3,18 @@
 from datetime import date, datetime, time, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, String, Time, false, func
+from sqlalchemy import (
+    BigInteger,
+    Date,
+    DateTime,
+    ForeignKey,
+    JSON,
+    String,
+    Time,
+    false,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -39,6 +50,42 @@ class User(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+
+
+class UserAIState(Base):
+    """User AI assistant state model.
+
+    Stores the last AI-generated SMART plan and a summarized history
+    for each user who has interacted with the AI assistant.
+
+    Attributes:
+        id: Primary key, auto-incremented integer.
+        user_id: Foreign key to the users table (unique, one state per user).
+        summary: JSONB column containing the AI-generated SMART plan
+            and a brief summarized interaction history.
+        updated_at: Timestamp of the last state update.
+    """
+
+    __tablename__ = "user_ai_states"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+    summary: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=True,
+        default={},
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
