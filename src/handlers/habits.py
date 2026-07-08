@@ -22,7 +22,7 @@ from src.keyboards.inline import (
     get_time_selection_keyboard,
 )
 from src.services.habit_generator import generate_tasks_for_habit
-from src.states.fsm import ConflictHabitFSM, EditHabitFSM, MainFSM, NewHabitFSM
+from src.states.fsm import ConflictHabitFSM, EditHabitFSM, HabitFSM, MainFSM, NewHabitFSM
 from src.utils.conflict import (
     _days_display,
     _freq_day_overlap,
@@ -56,6 +56,9 @@ _HABIT_CANCEL_STATES = [
     EditHabitFSM.frequency,
     EditHabitFSM.confirm_delete,
     ConflictHabitFSM.choose_action,
+    HabitFSM.view_list,
+    HabitFSM.interact_list,
+    HabitFSM.manage_single,
 ]
 
 
@@ -65,9 +68,9 @@ async def _show_habit_list(
     target: Message,
     state: FSMContext,
 ) -> None:
-    """Fetch and display the user's habit list with edit/delete buttons."""
+    """Fetch and display the user's habit list with an «Интерактировать» button."""
     await state.clear()
-    await state.set_state(MainFSM.main_menu)
+    await state.set_state(HabitFSM.view_list)
 
     async with get_db() as session:
         stmt = (
@@ -84,10 +87,10 @@ async def _show_habit_list(
             "У вас пока нет привычек. Создайте первую через ➕ Новая привычка!",
             reply_markup=get_main_menu_keyboard(),
         )
+        await state.set_state(MainFSM.main_menu)
         return
 
     lines = ["📋 Ваши привычки:"]
-    builder = InlineKeyboardBuilder()
     for i, habit in enumerate(habits, start=1):
         if habit.end_time is None:
             time_str = f"{habit.start_time.strftime('%H:%M')}, без ограничения"
@@ -98,12 +101,11 @@ async def _show_habit_list(
             )
         freq = FREQ_LABELS.get(habit.frequency, habit.frequency)
         lines.append(f"{i}. {habit.title} ({time_str}, {freq})")
-        builder.button(text="✏️ Изменить", callback_data=f"habit:edit:{habit.id}")
-        builder.button(text="🗑 Удалить", callback_data=f"habit:delete:{habit.id}")
 
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔄 Интерактировать", callback_data="habits:interact")
     builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
-    builder.adjust(*([2] * len(habits)), 1)
-    lines.append("\nВыберите привычку для управления:")
+    builder.adjust(2)
     await target.edit_text("\n".join(lines), reply_markup=builder.as_markup())
 
 
@@ -372,6 +374,128 @@ async def show_habits(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 # ===================================================================
+# Two-level habit navigation: interact sub-menu
+# ===================================================================
+
+
+@router.callback_query(F.data == "habits:interact")
+async def show_interact_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    """Show each habit as an inline button in a sub-menu."""
+    await callback.answer()
+    telegram_id = callback.from_user.id
+
+    async with get_db() as session:
+        stmt = (
+            select(Habit)
+            .join(User)
+            .where(User.telegram_id == telegram_id)
+            .order_by(Habit.id)
+        )
+        result = await session.execute(stmt)
+        habits = result.scalars().all()
+
+    if not habits:
+        await callback.message.edit_text(
+            "У вас пока нет привычек. Создайте первую через ➕ Новая привычка!",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        await state.clear()
+        await state.set_state(MainFSM.main_menu)
+        return
+
+    # Preserve the text list from the previous message
+    lines = ["📋 Ваши привычки:"]
+    for i, habit in enumerate(habits, start=1):
+        if habit.end_time is None:
+            time_str = f"{habit.start_time.strftime('%H:%M')}, без ограничения"
+        else:
+            time_str = (
+                f"{habit.start_time.strftime('%H:%M')}"
+                f"–{habit.end_time.strftime('%H:%M')}"
+            )
+        freq = FREQ_LABELS.get(habit.frequency, habit.frequency)
+        lines.append(f"{i}. {habit.title} ({time_str}, {freq})")
+
+    builder = InlineKeyboardBuilder()
+    for habit in habits:
+        builder.button(text=habit.title, callback_data=f"habit:select:{habit.id}")
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(*(1 for _ in habits), 2)
+
+    await state.set_state(HabitFSM.interact_list)
+    await callback.message.edit_text("\n".join(lines), reply_markup=builder.as_markup())
+
+
+async def _show_manage_menu(
+    callback: CallbackQuery,
+    state: FSMContext,
+    habit_id: int,
+    habit_title: str,
+) -> None:
+    """Render the manage menu (edit/delete) for a single habit."""
+    async with get_db() as session:
+        habit = await session.get(Habit, habit_id)
+        if habit is None:
+            await callback.message.edit_text("⚠️ Привычка не найдена.")
+            await _show_habit_list(telegram_id=callback.from_user.id, target=callback.message, state=state)
+            return
+
+        if habit.end_time is None:
+            time_str = f"{habit.start_time.strftime('%H:%M')}, без ограничения"
+        else:
+            time_str = (
+                f"{habit.start_time.strftime('%H:%M')}"
+                f"–{habit.end_time.strftime('%H:%M')}"
+            )
+        freq = FREQ_LABELS.get(habit.frequency, habit.frequency)
+
+        lines = [
+            f"📝 <b>{habit_title}</b>",
+            f"⏰ Время: {time_str}",
+            f"🔄 Периодичность: {freq}",
+            "",
+            "Выберите действие:",
+        ]
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✏️ Изменить", callback_data=f"habit:edit:{habit_id}")
+        builder.button(text="🗑 Удалить", callback_data=f"habit:delete:{habit_id}")
+        builder.button(text="⬅️ Назад", callback_data="nav:back")
+        builder.button(text="❌ Отмена", callback_data="nav:cancel")
+        builder.adjust(2, 2)
+
+    await state.update_data(manage_habit_id=habit_id, manage_habit_title=habit_title)
+    await state.set_state(HabitFSM.manage_single)
+    await callback.message.edit_text("\n".join(lines), reply_markup=builder.as_markup())
+
+
+@router.callback_query(F.data.startswith("habit:select:"))
+async def show_habit_manage_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    """Show the manage menu for a single habit (edit / delete)."""
+    await callback.answer()
+    habit_id = int(callback.data.split(":")[2])
+    telegram_id = callback.from_user.id
+
+    async with get_db() as session:
+        habit = await session.get(Habit, habit_id)
+        if habit is None:
+            await callback.message.edit_text("⚠️ Привычка не найдена.")
+            await _show_habit_list(telegram_id=telegram_id, target=callback.message, state=state)
+            return
+
+        stmt = select(User).where(User.telegram_id == telegram_id)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user is None or habit.user_id != user.id:
+            await callback.message.edit_text("⚠️ Эта привычка вам не принадлежит.")
+            await _show_habit_list(telegram_id=telegram_id, target=callback.message, state=state)
+            return
+
+    await _show_manage_menu(callback, state, habit_id, habit.title)
+
+
+# ===================================================================
 # Edit flow — start
 # ===================================================================
 
@@ -394,7 +518,16 @@ async def start_edit_habit(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.edit_text("⚠️ Эта привычка вам не принадлежит.")
         await _show_habit_list(telegram_id=callback.from_user.id, target=callback.message, state=state)
         return
-    await state.update_data(edit_habit_id=habit_id, edit_habit_title=habit.title)
+
+    # Track whether we came from manage_single so back can return there
+    current_state = await state.get_state()
+    from_manage_single = current_state == HabitFSM.manage_single.state
+
+    await state.update_data(
+        edit_habit_id=habit_id,
+        edit_habit_title=habit.title,
+        from_manage_single=from_manage_single,
+    )
     await state.set_state(EditHabitFSM.choose_field)
     await callback.message.edit_text(
         f"Что вы хотите изменить в привычке «{habit.title}»?",
@@ -806,6 +939,15 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
         )
         return
 
+    # --- HabitFSM ---
+    if current_state == HabitFSM.interact_list.state:
+        await _show_habit_list(telegram_id=callback.from_user.id, target=callback.message, state=state)
+        return
+    if current_state == HabitFSM.manage_single.state:
+        # Return to interact_list sub-menu
+        await show_interact_menu(callback, state)
+        return
+
     # --- EditHabitFSM ---
     if current_state in (EditHabitFSM.title.state, EditHabitFSM.start_time.state, EditHabitFSM.end_time.state, EditHabitFSM.frequency.state):
         fsm_data = await state.get_data()
@@ -816,7 +958,17 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
         )
         return
     if current_state == EditHabitFSM.choose_field.state:
-        await _show_habit_list(telegram_id=callback.from_user.id, target=callback.message, state=state)
+        fsm_data = await state.get_data()
+        from_manage_single = fsm_data.get("from_manage_single", False)
+        if from_manage_single:
+            # Return to the manage_single menu
+            habit_id = fsm_data.get("edit_habit_id")
+            habit_title = fsm_data.get("edit_habit_title", "этой привычки")
+            await state.update_data(manage_habit_id=habit_id, manage_habit_title=habit_title)
+            await state.set_state(HabitFSM.manage_single)
+            await _show_manage_menu(callback, state, habit_id, habit_title)
+        else:
+            await _show_habit_list(telegram_id=callback.from_user.id, target=callback.message, state=state)
         return
 
     await state.clear()
@@ -836,6 +988,21 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
 async def handle_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     current_state = await state.get_state()
+
+    # HabitFSM states: just go to main menu silently
+    is_habit_nav = current_state in (
+        HabitFSM.view_list.state,
+        HabitFSM.interact_list.state,
+        HabitFSM.manage_single.state,
+    )
+    if is_habit_nav:
+        await state.clear()
+        await state.set_state(MainFSM.main_menu)
+        await callback.message.edit_text(
+            "🏠 Главное меню бота\nВыберите действие:",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        return
 
     # Distinguish editing habits from creating new ones
     is_edit = (

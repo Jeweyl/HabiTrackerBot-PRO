@@ -137,3 +137,17 @@ class ConflictHabitFSM(StatesGroup):
     """
 
     choose_action = State()
+
+
+class HabitFSM(StatesGroup):
+    """FSM group for the two-level habit navigation menu.
+
+    Attributes:
+        view_list: View the habit text list with an «Интерактировать» button.
+        interact_list: Sub-menu with each habit as an inline button.
+        manage_single: Manage a single habit (edit / delete).
+    """
+
+    view_list = State()
+    interact_list = State()
+    manage_single = State()

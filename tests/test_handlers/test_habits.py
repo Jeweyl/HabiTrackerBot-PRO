@@ -318,7 +318,7 @@ async def test_start_time_keyboard_has_no_null_option(
 
 
 # ===================================================================
-# habit list
+# habit list — new two-level navigation
 # ===================================================================
 
 
@@ -344,10 +344,10 @@ async def test_show_habit_list_with_data(
     full_client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify that the habit list shows all user habits with edit/delete buttons."""
+    """Verify that the habit list shows all habits with «Интерактировать» button."""
     user = await _create_user(async_session)
-    habit1 = await _create_habit(async_session, user, "Бег", 7, 8)
-    habit2 = await _create_habit(async_session, user, "Чтение", 21, 22, "weekdays")
+    await _create_habit(async_session, user, "Бег", 7, 8)
+    await _create_habit(async_session, user, "Чтение", 21, 22, "weekdays")
 
     with patch(
         "src.handlers.habits.get_db",
@@ -360,14 +360,186 @@ async def test_show_habit_list_with_data(
 
         keyboard = msg.reply_markup.inline_keyboard
         all_cb = {btn.callback_data for row in keyboard for btn in row}
-        assert f"habit:edit:{habit1.id}" in all_cb
-        assert f"habit:delete:{habit1.id}" in all_cb
-        assert f"habit:edit:{habit2.id}" in all_cb
-        assert f"habit:delete:{habit2.id}" in all_cb
+        assert "habits:interact" in all_cb
+        assert "nav:cancel" in all_cb
+        # No direct edit/delete buttons on this level
+        assert not any(cb.startswith("habit:edit:") for cb in all_cb)
+        assert not any(cb.startswith("habit:delete:") for cb in all_cb)
 
 
 # ===================================================================
-# editing
+# Two-level navigation: interact menu
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_interact_menu_shows_habit_buttons(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that «Интерактировать» opens a sub-menu with habit buttons."""
+    user = await _create_user(async_session)
+    habit1 = await _create_habit(async_session, user, "Бег", 7, 8)
+    habit2 = await _create_habit(async_session, user, "Чтение", 21, 22, "weekdays")
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        msg = await full_client.send_callback("habits:interact")
+
+        assert "📋 Ваши привычки" in msg.text
+        assert "Бег" in msg.text
+        assert "Чтение" in msg.text
+
+        keyboard = msg.reply_markup.inline_keyboard
+        all_cb = {btn.callback_data for row in keyboard for btn in row}
+        assert f"habit:select:{habit1.id}" in all_cb
+        assert f"habit:select:{habit2.id}" in all_cb
+        assert "nav:back" in all_cb
+        assert "nav:cancel" in all_cb
+
+        # Verify button labels match habit titles
+        all_labels = {btn.text for row in keyboard for btn in row}
+        assert "Бег" in all_labels
+        assert "Чтение" in all_labels
+        assert "⬅️ Назад" in all_labels
+        assert "❌ Отмена" in all_labels
+
+
+@pytest.mark.asyncio
+async def test_habit_select_shows_manage_menu(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that selecting a habit opens the manage menu (edit/delete)."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Бег", 7, 8)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        msg = await full_client.send_callback(f"habit:select:{habit.id}")
+
+        assert "Бег" in msg.text
+        assert "07:00" in msg.text
+        assert "08:00" in msg.text
+        assert "Выберите действие" in msg.text
+
+        keyboard = msg.reply_markup.inline_keyboard
+        all_cb = {btn.callback_data for row in keyboard for btn in row}
+        assert f"habit:edit:{habit.id}" in all_cb
+        assert f"habit:delete:{habit.id}" in all_cb
+        assert "nav:back" in all_cb
+        assert "nav:cancel" in all_cb
+
+
+# ===================================================================
+# Back navigation tests
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_back_from_interact_to_view_list(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that «Назад» from interact_list returns to view_list."""
+    user = await _create_user(async_session)
+    await _create_habit(async_session, user, "Бег", 7, 8)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        msg = await full_client.send_callback("nav:back")
+
+        assert "📋 Ваши привычки" in msg.text
+        keyboard = msg.reply_markup.inline_keyboard
+        all_cb = {btn.callback_data for row in keyboard for btn in row}
+        assert "habits:interact" in all_cb
+        assert "nav:cancel" in all_cb
+
+
+@pytest.mark.asyncio
+async def test_back_from_manage_to_interact(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that «Назад» from manage_single returns to interact_list."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Бег", 7, 8)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit.id}")
+        msg = await full_client.send_callback("nav:back")
+
+        assert "📋 Ваши привычки" in msg.text
+        keyboard = msg.reply_markup.inline_keyboard
+        all_cb = {btn.callback_data for row in keyboard for btn in row}
+        assert f"habit:select:{habit.id}" in all_cb
+        assert "⬅️ Назад" in {btn.text for row in keyboard for btn in row}
+
+
+# ===================================================================
+# Cancel navigation tests
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_cancel_from_interact_goes_to_main_menu(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that «Отмена» from interact_list goes to main menu."""
+    user = await _create_user(async_session)
+    await _create_habit(async_session, user, "Бег", 7, 8)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        msg = await full_client.send_callback("nav:cancel")
+
+        assert "Главное меню" in msg.text
+
+
+@pytest.mark.asyncio
+async def test_cancel_from_manage_goes_to_main_menu(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Verify that «Отмена» from manage_single goes to main menu."""
+    user = await _create_user(async_session)
+    habit = await _create_habit(async_session, user, "Бег", 7, 8)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit.id}")
+        msg = await full_client.send_callback("nav:cancel")
+
+        assert "Главное меню" in msg.text
+
+
+# ===================================================================
+# editing — adapted for new two-level navigation
 # ===================================================================
 
 
@@ -385,6 +557,8 @@ async def test_edit_habit_title(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit.id}")
         await full_client.send_callback(f"habit:edit:{habit.id}")
         await full_client.send_callback("edit_field:title")
         await full_client.send_message("Новое название")
@@ -408,6 +582,8 @@ async def test_edit_habit_start_time(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit.id}")
         await full_client.send_callback(f"habit:edit:{habit.id}")
         await full_client.send_callback("edit_field:start_time")
         await full_client.send_callback("time:06:00")
@@ -430,6 +606,8 @@ async def test_edit_habit_start_time_invalid(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit.id}")
         await full_client.send_callback(f"habit:edit:{habit.id}")
         await full_client.send_callback("edit_field:start_time")
         # Try to set start_time = 18:00 (≥ end_time 17:00)
@@ -454,6 +632,8 @@ async def test_edit_habit_end_time(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit.id}")
         await full_client.send_callback(f"habit:edit:{habit.id}")
         await full_client.send_callback("edit_field:end_time")
         await full_client.send_callback("time:20:00")
@@ -476,6 +656,8 @@ async def test_edit_habit_end_time_to_null(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit.id}")
         await full_client.send_callback(f"habit:edit:{habit.id}")
         await full_client.send_callback("edit_field:end_time")
         msg = await full_client.send_callback("time:null")
@@ -499,6 +681,8 @@ async def test_edit_habit_frequency(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit.id}")
         await full_client.send_callback(f"habit:edit:{habit.id}")
         await full_client.send_callback("edit_field:frequency")
         await full_client.send_callback("freq:weekends")
@@ -521,10 +705,12 @@ async def test_cancel_edit(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit.id}")
         await full_client.send_callback(f"habit:edit:{habit.id}")
         # Cancel from choose_field
         msg = await full_client.send_callback("nav:cancel")
-        # Returns to habit list
+        # Returns to habit list (view_list)
         assert "Не трогать" in msg.text
 
     # Verify habit was NOT changed
@@ -555,15 +741,13 @@ async def test_edit_habit_unauthorized(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        # user_b (222222) tries to edit user_a's habit
-        # The edit handler itself correctly rejects by showing
-        # the empty habit list (since habit.user_id != user_b.id)
+        # user_b (222222) tries to view habits
         msg = await full_client.send_callback("main_menu:habits", user_id=222222)
         assert "У вас пока нет привычек" in msg.text
 
 
 # ===================================================================
-# deletion
+# deletion — adapted for new two-level navigation
 # ===================================================================
 
 
@@ -581,7 +765,9 @@ async def test_delete_habit_with_confirmation(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
-        # Click delete
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit.id}")
+        # Click delete from manage menu
         msg = await full_client.send_callback(f"habit:delete:{habit.id}")
         assert "Вы уверены" in msg.text
 
@@ -713,6 +899,8 @@ async def test_edit_habit_frequency_creates_conflict(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit_b.id}")
         await full_client.send_callback(f"habit:edit:{habit_b.id}")
         await full_client.send_callback("edit_field:frequency")
         # Pick daily → now overlaps with A
@@ -741,6 +929,8 @@ async def test_edit_habit_time_creates_conflict(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit_b.id}")
         await full_client.send_callback(f"habit:edit:{habit_b.id}")
         await full_client.send_callback("edit_field:start_time")
         # Pick 08:00 → now overlaps with A
@@ -769,6 +959,8 @@ async def test_edit_habit_change_time_resolves(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit_b.id}")
         await full_client.send_callback(f"habit:edit:{habit_b.id}")
         await full_client.send_callback("edit_field:start_time")
         # Pick 08:00 → conflict!
@@ -836,6 +1028,8 @@ async def test_conflict_keyboard_edit_buttons(
         side_effect=_mock_get_db_context(async_session),
     ):
         await full_client.send_callback("main_menu:habits")
+        await full_client.send_callback("habits:interact")
+        await full_client.send_callback(f"habit:select:{habit_b.id}")
         await full_client.send_callback(f"habit:edit:{habit_b.id}")
         await full_client.send_callback("edit_field:start_time")
         msg = await full_client.send_callback("time:08:00")
