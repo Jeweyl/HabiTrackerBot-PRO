@@ -587,6 +587,41 @@ def get_cancel_input_keyboard() -> InlineKeyboardMarkup:
 
 
 # ---------------------------------------------------------------------------
+# Duration selection keyboard — used in the AI assistant wizard
+# ---------------------------------------------------------------------------
+
+
+def get_duration_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for selecting how long the user has been
+    practising the habit.
+
+    Returns:
+        InlineKeyboardMarkup with duration options and navigation controls.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="Только начал",
+        callback_data="duration:just_started",
+    )
+    builder.button(
+        text="Несколько месяцев",
+        callback_data="duration:months",
+    )
+    builder.button(
+        text="Больше года",
+        callback_data="duration:years",
+    )
+    builder.button(
+        text="⏭ Пропустить",
+        callback_data="duration:skip",
+    )
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(1, 1, 1, 1, 2)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
 # AI assistant keyboard — Yes / No / Skip / Back / Cancel
 # ---------------------------------------------------------------------------
 

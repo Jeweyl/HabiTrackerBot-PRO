@@ -5,6 +5,7 @@ import logging
 import signal
 
 from src.bot import bot, dp
+from src.handlers.ai_assistant import router as ai_assistant_router
 from src.handlers.common import router as common_router
 from src.handlers.habits import router as habits_router
 from src.handlers.tasks import router as tasks_router
@@ -31,8 +32,9 @@ async def main() -> None:
     """
     _setup_logging()
 
-    dp.include_router(tasks_router)   # Must be before habits_router for priority
-    dp.include_router(habits_router)  # Must be before common_router for priority
+    dp.include_router(tasks_router)  # Must be before habits_router for priority
+    dp.include_router(habits_router)  # Must be before ai_assistant for priority
+    dp.include_router(ai_assistant_router)  # Must be before common_router for priority
     dp.include_router(common_router)
 
     logger.info("Starting bot polling...")

@@ -113,6 +113,7 @@ class AIAssistantFSM(StatesGroup):
         ask_duration: Ask how long they've been doing the activity.
         ask_details: Ask for more details (free-text).
         ask_health: Ask about health issues (optional).
+        ask_health_details: Receive free-text health details.
         confirm_recommendations: Show AI recommendations and ask for confirmation.
         finalize: Create habit and tasks (internal, not user-facing).
     """
@@ -122,6 +123,7 @@ class AIAssistantFSM(StatesGroup):
     ask_duration = State()
     ask_details = State()
     ask_health = State()
+    ask_health_details = State()
     confirm_recommendations = State()
     finalize = State()
 

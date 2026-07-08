@@ -12,10 +12,8 @@ from src.db.models import Habit, Task, User
 from src.db.session import get_db
 from src.keyboards.inline import (
     MAIN_MENU_BUTTONS,
-    get_cancel_input_keyboard,
     get_main_menu_keyboard,
 )
-from src.keyboards.reply import get_main_menu_reply_keyboard
 from src.states.fsm import MainFSM
 
 logger = logging.getLogger(__name__)
@@ -166,31 +164,6 @@ async def show_settings_stub(callback: CallbackQuery) -> None:
         "⚙️ Настройки будут доступны в следующей версии.\n"
         "Здесь вы сможете изменить язык, часовой пояс "
         "и время уведомлений.",
-        reply_markup=get_main_menu_keyboard(),
-    )
-
-
-@router.callback_query(F.data == "main_menu:help")
-async def show_help(callback: CallbackQuery) -> None:
-    """Show a brief usage guide for the bot.
-
-    Args:
-        callback: Incoming callback query from the main menu button.
-    """
-    await callback.answer()
-    await callback.message.edit_text(
-        "📖 <b>Как пользоваться ботом:</b>\n\n"
-        "1️⃣ Создайте привычку через «➕ Новая привычка», "
-        "указав название, время и периодичность.\n"
-        "2️⃣ Задачи сгенерируются автоматически на 30 дней "
-        "согласно расписанию привычки.\n"
-        "3️⃣ Просматривайте список дел на сегодня или "
-        "на любую дату через календарь.\n"
-        "4️⃣ Отмечайте задачи выполненными в режиме "
-        "«Отметить выполненные задачи».\n"
-        "5️⃣ Редактируйте или удаляйте привычки "
-        "в разделе «Мои привычки».\n\n"
-        "❓ По вопросам и предложениям: @support",
         reply_markup=get_main_menu_keyboard(),
     )
 
