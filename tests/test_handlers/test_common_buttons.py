@@ -248,6 +248,31 @@ async def test_settings_stub(
 async def test_help_shows_instructions(
     client: "TestClient",
 ) -> None:
-    """The help button is handled (either by AI assistant or fallback)."""
+    """The help button shows a help message with usage instructions."""
     msg = await client.send_callback("main_menu:help")
     assert msg.text is not None
+    assert "Как пользоваться ботом" in msg.text
+    assert "Создать привычку" in msg.text
+    assert "Привычки" in msg.text
+    assert "Статистика" in msg.text
+    assert "Настройки" in msg.text
+    assert "Помощь" in msg.text
+
+
+# ===========================================================================
+# Test: new habit choice menu
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_new_habit_shows_choice_keyboard(
+    client: "TestClient",
+) -> None:
+    """The 'Создать привычку' button shows a choice between manual and AI."""
+    msg = await client.send_callback("main_menu:new_habit")
+    assert msg.text is not None
+    assert "способ создания" in msg.text.lower()
+    assert msg.reply_markup is not None
+    rmk = str(msg.reply_markup)
+    assert "new_habit:manual" in rmk
+    assert "new_habit:ai" in rmk

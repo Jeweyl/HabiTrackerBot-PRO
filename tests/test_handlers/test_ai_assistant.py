@@ -61,47 +61,76 @@ async def ai_client(
     return TestClient(bot=test_bot, dp=dp)
 
 
+@pytest_asyncio.fixture
+async def ai_habits_client(
+    test_bot,
+    async_session,
+    monkeypatch,
+) -> TestClient:
+    """Return a TestClient with both ai_assistant and habits routers.
+
+    Needed for tests that verify the fallback from AI to manual creation.
+    """
+    import src.handlers.ai_assistant  # noqa: F811
+    import src.handlers.habits  # noqa: F811
+
+    importlib.reload(src.handlers.ai_assistant)
+    importlib.reload(src.handlers.habits)
+    from src.handlers.ai_assistant import (  # noqa: F811
+        router as ai_assistant_router,
+    )
+    from src.handlers.habits import (  # noqa: F811
+        router as habits_router,
+    )
+
+    @asynccontextmanager
+    async def _fake_get_db():
+        yield async_session
+
+    import src.handlers.ai_assistant as ai_module
+    import src.handlers.habits as habits_module
+
+    monkeypatch.setattr(ai_module, "get_db", _fake_get_db)
+    monkeypatch.setattr(habits_module, "get_db", _fake_get_db)
+
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(ai_assistant_router)
+    dp.include_router(habits_router)
+    return TestClient(bot=test_bot, dp=dp)
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_ai_happy_path(ai_client: TestClient) -> None:
-    """Full flow: user answers all questions, AI returns valid JSON,
+async def test_ai_happy_path_sport_keywords(ai_client: TestClient) -> None:
+    """Full flow with sport keywords: user enters title with 'бег',
+    gets sport-specific adaptive questions, AI returns valid JSON,
     habit and task are created."""
 
     async def _mock_send_to_ai(*args, **kwargs):
         return _SAMPLE_AI_RESPONSE
 
     with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
-        # Start AI assistant
-        resp = await ai_client.send_callback("main_menu:help")
+        # Start AI assistant via new_habit:ai
+        resp = await ai_client.send_callback("new_habit:ai")
         assert resp.text is not None
         assert "привычку" in resp.text.lower()
 
-        # Enter title
-        resp = await ai_client.send_message("Morning run")
+        # Enter title with sport keyword
+        resp = await ai_client.send_message("бег по утрам")
         assert resp.text is not None
-        assert "опыт" in resp.text.lower()
+        assert "подготовки" in resp.text.lower()
 
-        # Experience: yes
-        resp = await ai_client.send_callback("assist:yes")
+        # Adaptive Q1 (sport_intensity): select "Средний"
+        resp = await ai_client.send_callback("assist:intensity:intermediate")
         assert resp.text is not None
-        assert "давно" in resp.text.lower()
+        assert "минут" in resp.text.lower()
 
-        # Duration: months
-        resp = await ai_client.send_callback("duration:months")
-        assert resp.text is not None
-        assert "детали" in resp.text.lower()
-
-        # Details
-        resp = await ai_client.send_message("Run in the park every morning")
-        assert resp.text is not None
-        assert "здоровь" in resp.text.lower()
-
-        # Health: skip
-        resp = await ai_client.send_callback("assist:skip")
+        # Adaptive Q2 (sport_duration): select "30 мин"
+        resp = await ai_client.send_callback("assist:duration:30")
         assert resp.text is not None
         assert "SMART-план" in resp.text
         assert "Morning run" in resp.text
@@ -113,121 +142,228 @@ async def test_ai_happy_path(ai_client: TestClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ai_cancel_at_start(ai_client: TestClient) -> None:
-    """User cancels immediately after entering the title."""
-    # Start AI assistant
-    resp = await ai_client.send_callback("main_menu:help")
-    assert resp.text is not None
-    assert "привычку" in resp.text.lower()
-
-    # Enter title
-    resp = await ai_client.send_message("Morning run")
-    assert resp.text is not None
-    assert "опыт" in resp.text.lower()
-
-    # Cancel from ask_experience — should return to main menu
-    resp = await ai_client.send_callback("nav:cancel")
-    assert resp is not None
-    # edit_text responses may not have text populated in the mock
-    # but the handler should not crash
-
-
-@pytest.mark.asyncio
-async def test_ai_invalid_json(ai_client: TestClient) -> None:
-    """AI returns None (invalid JSON) → error message → return to menu."""
-
-    async def _mock_send_to_ai(*args, **kwargs):
-        return None
-
-    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
-        # Start AI assistant
-        resp = await ai_client.send_callback("main_menu:help")
-        assert "привычку" in resp.text.lower()
-
-        # Enter title
-        resp = await ai_client.send_message("Morning run")
-        assert "опыт" in resp.text.lower()
-
-        # Experience: skip
-        resp = await ai_client.send_callback("assist:skip")
-        assert "давно" in resp.text.lower()
-
-        # Duration: skip
-        resp = await ai_client.send_callback("duration:skip")
-        assert "детали" in resp.text.lower()
-
-        # Details
-        resp = await ai_client.send_message("Some details")
-        assert "здоровь" in resp.text.lower()
-
-        # Health: no → triggers AI call which returns None
-        resp = await ai_client.send_callback("assist:no")
-        assert resp.text is not None
-        assert "Не удалось получить рекомендации" in resp.text
-
-
-@pytest.mark.asyncio
-async def test_ai_back_navigation(ai_client: TestClient) -> None:
-    """User goes back from ask_experience to start, re-enters title."""
-    # Start AI assistant
-    resp = await ai_client.send_callback("main_menu:help")
-    assert resp.text is not None
-    assert "привычку" in resp.text.lower()
-
-    # Enter title
-    resp = await ai_client.send_message("Morning run")
-    assert resp.text is not None
-    assert "опыт" in resp.text.lower()
-
-    # Go back to start
-    resp = await ai_client.send_callback("nav:back")
-    assert resp is not None
-    # edit_text may not populate text, but handler should not crash
-
-    # Re-enter title
-    resp = await ai_client.send_message("Evening yoga")
-    assert resp.text is not None
-    assert "опыт" in resp.text.lower()
-
-    # Experience: no
-    resp = await ai_client.send_callback("assist:no")
-    assert resp.text is not None
-    assert "давно" in resp.text.lower()
-
-
-@pytest.mark.asyncio
-async def test_ai_skip_optional(ai_client: TestClient) -> None:
-    """User skips both optional questions (experience, health);
-    verify None is stored and flow still completes."""
+async def test_ai_happy_path_hygiene_keywords(ai_client: TestClient) -> None:
+    """Full flow with hygiene keywords: title 'чистить зубы',
+    gets hygiene-specific adaptive questions."""
 
     async def _mock_send_to_ai(*args, **kwargs):
         return _SAMPLE_AI_RESPONSE
 
     with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
-        # Start AI assistant
-        resp = await ai_client.send_callback("main_menu:help")
+        resp = await ai_client.send_callback("new_habit:ai")
         assert "привычку" in resp.text.lower()
 
-        # Enter title
-        resp = await ai_client.send_message("Yoga")
-        # Experience: skip
-        resp = await ai_client.send_callback("assist:skip")
-        assert "давно" in resp.text.lower()
+        resp = await ai_client.send_message("чистить зубы")
+        assert "время дня" in resp.text.lower()
 
-        # Duration: just_started
-        resp = await ai_client.send_callback("duration:just_started")
-        assert "детали" in resp.text.lower()
+        # Adaptive Q1 (hygiene_time): select "Утром"
+        resp = await ai_client.send_callback("assist:time:morning")
+        assert "помешать" in resp.text.lower()
 
-        # Details
-        resp = await ai_client.send_message("Daily yoga at home")
-        assert "здоровь" in resp.text.lower()
-
-        # Health: skip
-        resp = await ai_client.send_callback("assist:skip")
+        # Adaptive Q2 (hygiene_obstacles): send text
+        resp = await ai_client.send_message("Иногда забываю вечером")
         assert resp.text is not None
         assert "SMART-план" in resp.text
 
-        # Confirm: no (decline creation)
+        resp = await ai_client.send_callback("assist:yes")
+        assert "Привычка успешно создана" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_ai_happy_path_generic_keywords(ai_client: TestClient) -> None:
+    """Full flow with generic (no keyword match): title 'читать книги',
+    gets generic frequency + obstacles questions."""
+
+    async def _mock_send_to_ai(*args, **kwargs):
+        return _SAMPLE_AI_RESPONSE
+
+    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
+        resp = await ai_client.send_callback("new_habit:ai")
+        assert "привычку" in resp.text.lower()
+
+        resp = await ai_client.send_message("читать книги")
+        assert "часто" in resp.text.lower()
+
+        # Adaptive Q1 (generic_frequency): select "Каждый день"
+        resp = await ai_client.send_callback("assist:freq:daily")
+        assert "препятствия" in resp.text.lower()
+
+        # Adaptive Q2 (generic_obstacles): send text
+        resp = await ai_client.send_message("Нет времени")
+        assert resp.text is not None
+        assert "SMART-план" in resp.text
+
+        resp = await ai_client.send_callback("assist:yes")
+        assert "Привычка успешно создана" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_ai_skip_all_adaptive_questions(ai_client: TestClient) -> None:
+    """User skips both adaptive questions via assist:skip callback."""
+
+    async def _mock_send_to_ai(*args, **kwargs):
+        return _SAMPLE_AI_RESPONSE
+
+    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
+        resp = await ai_client.send_callback("new_habit:ai")
+        resp = await ai_client.send_message("бег")
+
+        # Skip Q1
+        resp = await ai_client.send_callback("assist:skip")
+        assert "минут" in resp.text.lower()
+
+        # Skip Q2
+        resp = await ai_client.send_callback("assist:skip")
+        assert "SMART-план" in resp.text
+
+        resp = await ai_client.send_callback("assist:yes")
+        assert "Привычка успешно создана" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_ai_cancel_at_adaptive_q1(ai_client: TestClient) -> None:
+    """User cancels at the first adaptive question."""
+    resp = await ai_client.send_callback("new_habit:ai")
+    assert "привычку" in resp.text.lower()
+
+    resp = await ai_client.send_message("бег")
+    assert "подготовки" in resp.text.lower()
+
+    # Cancel from ask_adaptive_q1
+    resp = await ai_client.send_callback("nav:cancel")
+    assert resp is not None
+
+
+@pytest.mark.asyncio
+async def test_ai_invalid_json_error_handling(ai_client: TestClient) -> None:
+    """AI returns None (invalid JSON) → friendly error + fallback keyboard."""
+
+    async def _mock_send_to_ai(*args, **kwargs):
+        return None
+
+    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
+        resp = await ai_client.send_callback("new_habit:ai")
+        assert "привычку" in resp.text.lower()
+
+        # Enter title
+        resp = await ai_client.send_message("читать книги")
+        assert "часто" in resp.text.lower()
+
+        # Q1: select frequency
+        resp = await ai_client.send_callback("assist:freq:daily")
+        assert "препятствия" in resp.text.lower()
+
+        # Q2: send text → triggers AI call which returns None
+        resp = await ai_client.send_message("Нет времени")
+        assert resp.text is not None
+        assert "ИИ временно недоступен" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_ai_error_fallback_to_manual(
+    ai_habits_client: TestClient, async_session
+) -> None:
+    """After AI failure, user clicks 'Создать вручную' → starts manual creation."""
+
+    # Create a user so the manual creation handler can find it
+    from src.db.models import User
+
+    user = User(telegram_id=123456, language="ru", timezone="UTC")
+    async_session.add(user)
+    await async_session.commit()
+
+    async def _mock_send_to_ai(*args, **kwargs):
+        return None
+
+    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
+        resp = await ai_habits_client.send_callback("new_habit:ai")
+        resp = await ai_habits_client.send_message("читать книги")
+
+        # Q1: skip
+        resp = await ai_habits_client.send_callback("assist:skip")
+        # Q2: skip (triggers AI → fails)
+        resp = await ai_habits_client.send_callback("assist:skip")
+        assert "ИИ временно недоступен" in resp.text
+
+        # Click "Создать вручную" (new_habit:manual)
+        resp = await ai_habits_client.send_callback("new_habit:manual")
+        assert resp.text is not None
+        assert "название привычки" in resp.text.lower()
+        assert "от 1 до 200" in resp.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_ai_back_navigation(ai_client: TestClient) -> None:
+    """User goes back from adaptive Q1 to start, re-enters title."""
+    resp = await ai_client.send_callback("new_habit:ai")
+    assert "привычку" in resp.text.lower()
+
+    resp = await ai_client.send_message("бег")
+    assert "подготовки" in resp.text.lower()
+
+    # Go back to start
+    resp = await ai_client.send_callback("nav:back")
+    assert resp is not None
+    # Should show title prompt again
+    assert "привычку" in resp.text.lower()
+
+    # Re-enter different title
+    resp = await ai_client.send_message("йога")
+    assert "подготовки" in resp.text.lower()
+
+    # Answer Q1 and go back to Q1 from Q2
+    resp = await ai_client.send_callback("assist:intensity:beginner")
+    assert "минут" in resp.text.lower()
+
+    # Go back to Q1
+    resp = await ai_client.send_callback("nav:back")
+    assert "подготовки" in resp.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_ai_decline_creation(ai_client: TestClient) -> None:
+    """User completes flow but declines habit creation at confirmation."""
+
+    async def _mock_send_to_ai(*args, **kwargs):
+        return _SAMPLE_AI_RESPONSE
+
+    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
+        resp = await ai_client.send_callback("new_habit:ai")
+        resp = await ai_client.send_message("бег")
+
+        resp = await ai_client.send_callback("assist:skip")  # Q1
+        resp = await ai_client.send_callback("assist:skip")  # Q2
+        assert "SMART-план" in resp.text
+
+        # Decline creation
         resp = await ai_client.send_callback("assist:no")
         assert resp.text is not None
         assert "может быть, в другой раз" in resp.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_ai_back_from_confirm_to_q2(ai_client: TestClient) -> None:
+    """User goes back from confirm_recommendations to Q2,
+    re-answers Q2, and continues."""
+
+    async def _mock_send_to_ai(*args, **kwargs):
+        return _SAMPLE_AI_RESPONSE
+
+    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
+        resp = await ai_client.send_callback("new_habit:ai")
+        resp = await ai_client.send_message("бег")
+
+        resp = await ai_client.send_callback("assist:intensity:beginner")
+        resp = await ai_client.send_callback("assist:duration:30")
+        assert "SMART-план" in resp.text
+
+        # Go back to Q2
+        resp = await ai_client.send_callback("nav:back")
+        assert "минут" in resp.text.lower()
+
+        # Re-answer Q2
+        resp = await ai_client.send_callback("assist:duration:60")
+        assert "SMART-план" in resp.text
+
+        resp = await ai_client.send_callback("assist:yes")
+        assert "Привычка успешно создана" in resp.text

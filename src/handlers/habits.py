@@ -208,9 +208,12 @@ async def _save_habit_from_fsm(
 # ===================================================================
 
 
-@router.callback_query(F.data == "main_menu:new_habit")
-async def start_new_habit(callback: CallbackQuery, state: FSMContext) -> None:
-    """Start the 'New Habit' creation wizard."""
+@router.callback_query(F.data == "new_habit:manual")
+async def start_new_habit_manual(callback: CallbackQuery, state: FSMContext) -> None:
+    """Start the manual 'New Habit' creation wizard.
+
+    Entry point from the new habit choice menu or AI fallback.
+    """
     await callback.answer()
     telegram_id = callback.from_user.id
 
@@ -226,7 +229,7 @@ async def start_new_habit(callback: CallbackQuery, state: FSMContext) -> None:
             return
 
     await state.set_state(NewHabitFSM.title)
-    await callback.message.answer(
+    await callback.message.edit_text(
         "📝 Введите название привычки (от 1 до 200 символов):",
         reply_markup=get_cancel_input_keyboard(),
     )

@@ -94,35 +94,40 @@ async def test_send_to_ai_error_status(caplog: pytest.LogCaptureFixture) -> None
 
 
 def test_build_prompt() -> None:
-    """build_prompt should include all provided fields and handle missing keys."""
-    # All fields present
+    """build_prompt should include habit title and adaptive answers, handle
+    missing keys and skipped values."""
+    # All values present
+    habit_title = "Morning run"
     answers = {
-        "title": "Morning run",
-        "experience": "Beginner",
-        "duration": "2 weeks",
-        "details": "Run in the park",
-        "health": "None",
+        "q1": "Beginner",
+        "q2": "30 minutes",
     }
-    prompt = build_prompt(answers)
+    prompt = build_prompt(habit_title, answers)
 
     assert "Morning run" in prompt
+    assert "q1" in prompt
     assert "Beginner" in prompt
-    assert "2 weeks" in prompt
-    assert "Run in the park" in prompt
-    assert "None" in prompt
+    assert "q2" in prompt
+    assert "30 minutes" in prompt
     assert "SMART goal" in prompt
     assert "refined_habit" in prompt
 
-    # Some fields missing / None
-    partial = {
-        "title": "Yoga",
-        "experience": None,
-        "duration": "1 month",
+    # Some values skipped / None
+    answers_partial = {
+        "q1": "Утром",
+        "q2": "Пропущено",
     }
-    prompt_partial = build_prompt(partial)
+    prompt_partial = build_prompt("чистить зубы", answers_partial)
 
-    assert "Yoga" in prompt_partial
-    assert "Not provided" in prompt_partial  # experience → None
-    assert "1 month" in prompt_partial
-    assert "Not provided" in prompt_partial  # details → missing key
-    assert "Not provided" in prompt_partial  # health → missing key
+    assert "чистить зубы" in prompt_partial
+    assert "q1" in prompt_partial
+    assert "Утром" in prompt_partial
+    # q2 is skipped, should not appear in the answers text
+    assert "Пропущено" not in prompt_partial
+
+    # All skipped or empty
+    answers_empty: dict = {}
+    prompt_empty = build_prompt("читать книги", answers_empty)
+
+    assert "читать книги" in prompt_empty
+    assert "No additional details provided" in prompt_empty

@@ -109,23 +109,15 @@ class AIAssistantFSM(StatesGroup):
 
     Attributes:
         start: Initial greeting and title input.
-        ask_experience: Ask about the user's experience level.
-        ask_duration: Ask how long they've been doing the activity.
-        ask_details: Ask for more details (free-text).
-        ask_health: Ask about health issues (optional).
-        ask_health_details: Receive free-text health details.
+        ask_adaptive_q1: First adaptive question based on habit title keywords.
+        ask_adaptive_q2: Second adaptive question based on habit title keywords.
         confirm_recommendations: Show AI recommendations and ask for confirmation.
-        finalize: Create habit and tasks (internal, not user-facing).
     """
 
     start = State()
-    ask_experience = State()
-    ask_duration = State()
-    ask_details = State()
-    ask_health = State()
-    ask_health_details = State()
+    ask_adaptive_q1 = State()
+    ask_adaptive_q2 = State()
     confirm_recommendations = State()
-    finalize = State()
 
 
 class ConflictHabitFSM(StatesGroup):

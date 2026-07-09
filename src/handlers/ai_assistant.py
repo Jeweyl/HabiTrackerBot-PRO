@@ -11,9 +11,13 @@ from sqlalchemy import select
 from src.db.models import Habit, Task, User, UserAIState
 from src.db.session import get_db
 from src.keyboards.inline import (
-    get_ai_assistant_keyboard,
-    get_duration_keyboard,
+    get_ai_fallback_keyboard,
+    get_generic_frequency_keyboard,
+    get_hygiene_time_keyboard,
     get_main_menu_keyboard,
+    get_skip_only_keyboard,
+    get_sport_duration_keyboard,
+    get_sport_intensity_keyboard,
 )
 from src.services.ai_service import build_prompt, send_to_ai
 from src.states.fsm import AIAssistantFSM, MainFSM
@@ -24,16 +28,92 @@ router = Router()
 """Router for AI assistant wizard handlers."""
 
 # ---------------------------------------------------------------------------
+# Keyword matching for adaptive questions
+# ---------------------------------------------------------------------------
+
+_SPORT_KEYWORDS = [
+    "бег",
+    "спорт",
+    "тренировк",
+    "фитнес",
+    "зарядк",
+    "йог",
+    "плавани",
+    "велосипед",
+    "ходьб",
+    "приседан",
+    "отжиман",
+    "гантел",
+    "штанг",
+    "турник",
+    "пресс",
+    "растяжк",
+]
+"""Keywords that trigger sport/training adaptive questions."""
+
+_HYGIENE_KEYWORDS = [
+    "зуб",
+    "чистк",
+    "уход",
+    "душ",
+    "гигиен",
+    "умыва",
+    "брит",
+    "ногт",
+    "волос",
+    "расчёс",
+    "расчес",
+]
+"""Keywords that trigger hygiene adaptive questions."""
+
+
+def get_adaptive_questions(title: str) -> tuple[str, str, str, str]:
+    """Determine which adaptive questions to ask based on habit title keywords.
+
+    Args:
+        title: The habit title entered by the user.
+
+    Returns:
+        A tuple of (q1_text, q2_text, q1_type, q2_type) where type is one of:
+        ``"sport_intensity"``, ``"sport_duration"``, ``"hygiene_time"``,
+        ``"hygiene_obstacles"``, ``"generic_frequency"``, ``"generic_obstacles"``.
+    """
+    title_lower = title.lower()
+
+    if any(kw in title_lower for kw in _SPORT_KEYWORDS):
+        return (
+            "Какой у вас уровень физической подготовки?",
+            "Сколько минут в день вы готовы уделять этой привычке?",
+            "sport_intensity",
+            "sport_duration",
+        )
+
+    if any(kw in title_lower for kw in _HYGIENE_KEYWORDS):
+        return (
+            "В какое время дня вы планируете это делать?",
+            "Что может помешать вам делать это регулярно? "
+            "(напишите или нажмите Пропустить)",
+            "hygiene_time",
+            "hygiene_obstacles",
+        )
+
+    return (
+        "Как часто вы планируете выполнять эту привычку?",
+        "Какие препятствия могут помешать вам её выполнять? "
+        "(напишите или нажмите Пропустить)",
+        "generic_frequency",
+        "generic_obstacles",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Back navigation mapping
 # ---------------------------------------------------------------------------
 
 _BACK_MAP = {
-    AIAssistantFSM.ask_experience: AIAssistantFSM.start,
-    AIAssistantFSM.ask_duration: AIAssistantFSM.ask_experience,
-    AIAssistantFSM.ask_details: AIAssistantFSM.ask_duration,
-    AIAssistantFSM.ask_health: AIAssistantFSM.ask_details,
-    AIAssistantFSM.ask_health_details: AIAssistantFSM.ask_health,
-    AIAssistantFSM.confirm_recommendations: AIAssistantFSM.ask_health,
+    AIAssistantFSM.ask_adaptive_q1: AIAssistantFSM.start,
+    AIAssistantFSM.ask_adaptive_q2: AIAssistantFSM.ask_adaptive_q1,
+    AIAssistantFSM.confirm_recommendations: AIAssistantFSM.ask_adaptive_q2,
 }
 
 
@@ -74,26 +154,33 @@ async def _call_ai_and_transition(
     """Build the prompt from FSM data, call send_to_ai, and transition.
 
     On success: store AI response in FSM data and go to confirm_recommendations.
-    On failure: show error message and return to main menu.
+    On failure: show friendly error message with fallback to manual creation.
 
     Args:
         event: The triggering Message or CallbackQuery.
         state: FSM context for the current user.
     """
     data = await state.get_data()
-    prompt = build_prompt(data)
+    habit_title = data.get("title", "")
+    answers = data.get("answers", {})
+
+    prompt = build_prompt(habit_title, answers)
     ai_response = await send_to_ai(prompt)
 
     if ai_response is None:
         if isinstance(event, CallbackQuery):
             await event.answer()
-        await event.message.edit_text(
-            "❌ Не удалось получить рекомендации. "
-            "Попробуйте позже или создайте привычку вручную.",
-            reply_markup=get_main_menu_keyboard(),
-        )
-        await state.clear()
-        await state.set_state(MainFSM.main_menu)
+            await event.message.edit_text(
+                "🤖 ИИ временно недоступен. "
+                "Попробуйте позже или создайте привычку вручную.",
+                reply_markup=get_ai_fallback_keyboard(),
+            )
+        else:
+            await event.answer(
+                "🤖 ИИ временно недоступен. "
+                "Попробуйте позже или создайте привычку вручную.",
+                reply_markup=get_ai_fallback_keyboard(),
+            )
         return
 
     await state.update_data(ai_response=ai_response)
@@ -120,21 +207,71 @@ async def _call_ai_and_transition(
         await event.answer()
         await event.message.edit_text(
             message_text,
-            reply_markup=get_ai_assistant_keyboard(),
+            reply_markup=get_ai_assistant_confirm_keyboard(),
             parse_mode="Markdown",
         )
     else:
         await event.answer(
             message_text,
-            reply_markup=get_ai_assistant_keyboard(),
+            reply_markup=get_ai_assistant_confirm_keyboard(),
             parse_mode="Markdown",
         )
 
 
+# ---------------------------------------------------------------------------
+# Helper: get keyboard for a given question type
+# ---------------------------------------------------------------------------
+
+
+def _get_keyboard_for_q_type(q_type: str):
+    """Return the appropriate inline keyboard for a question type.
+
+    Args:
+        q_type: One of the adaptive question type strings.
+
+    Returns:
+        An InlineKeyboardMarkup for the question, or None for text-input types.
+    """
+    if q_type == "sport_intensity":
+        return get_sport_intensity_keyboard()
+    if q_type == "sport_duration":
+        return get_sport_duration_keyboard()
+    if q_type == "hygiene_time":
+        return get_hygiene_time_keyboard()
+    if q_type == "generic_frequency":
+        return get_generic_frequency_keyboard()
+    # For text-input types (hygiene_obstacles, generic_obstacles),
+    # show a skip-only keyboard
+    if q_type in ("hygiene_obstacles", "generic_obstacles"):
+        return get_skip_only_keyboard()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Helper: confirmation keyboard (Yes / No)
+# ---------------------------------------------------------------------------
+
+
+def get_ai_assistant_confirm_keyboard():
+    """Build an inline keyboard for confirming AI recommendations.
+
+    Returns:
+        InlineKeyboardMarkup with Yes, No, Back, and Cancel buttons.
+    """
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Да", callback_data="assist:yes")
+    builder.button(text="❌ Нет", callback_data="assist:no")
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(2, 2)
+    return builder.as_markup()
+
+
 # ===========================================================================
 # Back and Cancel handlers — registered first to take priority over
-# state-specific handlers.  They use ``F.data`` filters only and determine
-# the current state via ``state.get_state()``.
+# state-specific handlers.
 # ===========================================================================
 
 
@@ -153,7 +290,6 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     current = await state.get_state()
 
-    # Find the FSM state enum member matching the current string state
     target = None
     for fsm_state, back_state in _BACK_MAP.items():
         if fsm_state.state == current:
@@ -171,31 +307,18 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
             "Какую привычку вы хотите развить? "
             "Опишите её одной фразой (например, 'Я хочу бегать каждое утро').",
         )
-    elif target == AIAssistantFSM.ask_experience:
-        await callback.message.edit_text(
-            "У вас есть опыт в этой сфере?",
-            reply_markup=get_ai_assistant_keyboard(),
-        )
-    elif target == AIAssistantFSM.ask_duration:
-        await callback.message.edit_text(
-            "Как давно вы этим занимаетесь?",
-            reply_markup=get_duration_keyboard(),
-        )
-    elif target == AIAssistantFSM.ask_details:
-        await callback.message.edit_text(
-            "Пожалуйста, уточните детали: сколько времени тратите, "
-            "делаете ли перерывы, как часто занимаетесь?",
-        )
-    elif target == AIAssistantFSM.ask_health:
-        await callback.message.edit_text(
-            "Есть ли у вас проблемы со здоровьем, которые "
-            "могут повлиять на привычку?",
-            reply_markup=get_ai_assistant_keyboard(),
-        )
-    elif target == AIAssistantFSM.ask_health_details:
-        await callback.message.edit_text(
-            "Пожалуйста, опишите ваши ограничения по здоровью.",
-        )
+    elif target == AIAssistantFSM.ask_adaptive_q1:
+        data = await state.get_data()
+        q1_text = data.get("q1_text", "")
+        q1_type = data.get("q1_type", "")
+        keyboard = _get_keyboard_for_q_type(q1_type)
+        await callback.message.edit_text(q1_text, reply_markup=keyboard)
+    elif target == AIAssistantFSM.ask_adaptive_q2:
+        data = await state.get_data()
+        q2_text = data.get("q2_text", "")
+        q2_type = data.get("q2_type", "")
+        keyboard = _get_keyboard_for_q_type(q2_type)
+        await callback.message.edit_text(q2_text, reply_markup=keyboard)
 
 
 @router.callback_query(F.data == "nav:cancel")
@@ -211,18 +334,18 @@ async def handle_cancel(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 # ===========================================================================
-# Entry point — "Помощь" button (main_menu:help)
+# Entry point — "Запросить помощь ассистента" button (new_habit:ai)
 # ===========================================================================
 
 
-@router.callback_query(F.data == "main_menu:help")
+@router.callback_query(F.data == "new_habit:ai")
 async def ai_start(callback: CallbackQuery, state: FSMContext) -> None:
     """Entry point: start the AI assistant wizard.
 
     Clears any previous state and asks the user for a habit title.
 
     Args:
-        callback: Incoming callback query from the main menu button.
+        callback: Incoming callback query from the new habit choice menu.
         state: FSM context for the current user.
     """
     await callback.answer()
@@ -241,7 +364,7 @@ async def ai_start(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(AIAssistantFSM.start)
 async def process_title(message: Message, state: FSMContext) -> None:
-    """Validate and store the habit title, then ask about experience.
+    """Validate and store the habit title, then ask the first adaptive question.
 
     Args:
         message: Incoming text message with the habit title.
@@ -261,22 +384,33 @@ async def process_title(message: Message, state: FSMContext) -> None:
         )
         return
 
-    await state.update_data(title=title)
-    await state.set_state(AIAssistantFSM.ask_experience)
-    await message.answer(
-        "У вас есть опыт в этой сфере?",
-        reply_markup=get_ai_assistant_keyboard(),
+    # Determine adaptive questions based on title keywords
+    q1_text, q2_text, q1_type, q2_type = get_adaptive_questions(title)
+
+    await state.update_data(
+        title=title,
+        q1_text=q1_text,
+        q2_text=q2_text,
+        q1_type=q1_type,
+        q2_type=q2_type,
+        answers={},
     )
+    await state.set_state(AIAssistantFSM.ask_adaptive_q1)
+
+    keyboard = _get_keyboard_for_q_type(q1_type)
+    await message.answer(q1_text, reply_markup=keyboard)
 
 
 # ===========================================================================
-# State: ask_experience — yes / no / skip
+# State: ask_adaptive_q1 — first adaptive question
 # ===========================================================================
 
 
-@router.callback_query(AIAssistantFSM.ask_experience)
-async def process_experience(callback: CallbackQuery, state: FSMContext) -> None:
-    """Store the user's experience answer and ask about duration.
+@router.callback_query(AIAssistantFSM.ask_adaptive_q1, F.data.startswith("assist:"))
+async def process_adaptive_q1_callback(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    """Handle callback-based answer for the first adaptive question.
 
     Args:
         callback: Incoming callback query.
@@ -284,85 +418,79 @@ async def process_experience(callback: CallbackQuery, state: FSMContext) -> None
     """
     await callback.answer()
     data = callback.data
+    data_state = await state.get_data()
+    answers = data_state.get("answers", {})
 
-    if data == "assist:yes":
-        await state.update_data(experience="yes")
-    elif data == "assist:no":
-        await state.update_data(experience="no")
-    elif data == "assist:skip":
-        await state.update_data(experience=None)
+    if data == "assist:skip":
+        answers["q1"] = "Пропущено"
     else:
-        return  # ignore other callbacks
-
-    await state.set_state(AIAssistantFSM.ask_duration)
-    await callback.message.edit_text(
-        "Как давно вы этим занимаетесь?",
-        reply_markup=get_duration_keyboard(),
-    )
-
-
-# ===========================================================================
-# State: ask_duration — duration options
-# ===========================================================================
-
-
-@router.callback_query(AIAssistantFSM.ask_duration)
-async def process_duration(callback: CallbackQuery, state: FSMContext) -> None:
-    """Store the duration answer and ask for more details.
-
-    Args:
-        callback: Incoming callback query.
-        state: FSM context for the current user.
-    """
-    await callback.answer()
-    data = callback.data
-
-    if data.startswith("duration:"):
-        value = data.split(":", 1)[1]
-        if value == "skip":
-            await state.update_data(duration=None)
+        # Extract the value from the callback data
+        # Format: assist:category:value or assist:value
+        parts = data.split(":", 2)
+        if len(parts) >= 3:
+            value = parts[2]
         else:
-            await state.update_data(duration=value)
-    else:
-        return  # ignore other callbacks
+            value = parts[1] if len(parts) > 1 else data
 
-    await state.set_state(AIAssistantFSM.ask_details)
-    await callback.message.edit_text(
-        "Пожалуйста, уточните детали: сколько времени тратите, "
-        "делаете ли перерывы, как часто занимаетесь?",
-    )
+        # Map to human-readable labels
+        label_map = {
+            "beginner": "Начинающий",
+            "intermediate": "Средний",
+            "advanced": "Продвинутый",
+            "15": "15 мин",
+            "30": "30 мин",
+            "45": "45 мин",
+            "60": "60 мин",
+            "morning": "Утром",
+            "evening": "Вечером",
+            "both": "Утром и вечером",
+            "daily": "Каждый день",
+            "several_per_week": "Несколько раз в неделю",
+            "once_per_week": "Раз в неделю",
+        }
+        answers["q1"] = label_map.get(value, value)
+
+    await state.update_data(answers=answers)
+    await state.set_state(AIAssistantFSM.ask_adaptive_q2)
+
+    q2_text = data_state.get("q2_text", "")
+    q2_type = data_state.get("q2_type", "")
+    keyboard = _get_keyboard_for_q_type(q2_type)
+    await callback.message.edit_text(q2_text, reply_markup=keyboard)
 
 
-# ===========================================================================
-# State: ask_details — free-text details
-# ===========================================================================
-
-
-@router.message(AIAssistantFSM.ask_details)
-async def process_details(message: Message, state: FSMContext) -> None:
-    """Store the free-text details and ask about health.
+@router.message(AIAssistantFSM.ask_adaptive_q1)
+async def process_adaptive_q1_text(message: Message, state: FSMContext) -> None:
+    """Handle text-based answer for the first adaptive question (fallback).
 
     Args:
-        message: Incoming text message with details.
+        message: Incoming text message.
         state: FSM context for the current user.
     """
-    details = (message.text or "").strip() or None
-    await state.update_data(details=details)
-    await state.set_state(AIAssistantFSM.ask_health)
-    await message.answer(
-        "Есть ли у вас проблемы со здоровьем, которые " "могут повлиять на привычку?",
-        reply_markup=get_ai_assistant_keyboard(),
-    )
+    text = (message.text or "").strip()
+    data_state = await state.get_data()
+    answers = data_state.get("answers", {})
+
+    answers["q1"] = text if text else "Пропущено"
+    await state.update_data(answers=answers)
+    await state.set_state(AIAssistantFSM.ask_adaptive_q2)
+
+    q2_text = data_state.get("q2_text", "")
+    q2_type = data_state.get("q2_type", "")
+    keyboard = _get_keyboard_for_q_type(q2_type)
+    await message.answer(q2_text, reply_markup=keyboard)
 
 
 # ===========================================================================
-# State: ask_health — yes (→ details) / no / skip
+# State: ask_adaptive_q2 — second adaptive question
 # ===========================================================================
 
 
-@router.callback_query(AIAssistantFSM.ask_health)
-async def process_health(callback: CallbackQuery, state: FSMContext) -> None:
-    """Handle the health question: yes → ask for details, no/skip → proceed.
+@router.callback_query(AIAssistantFSM.ask_adaptive_q2, F.data.startswith("assist:"))
+async def process_adaptive_q2_callback(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    """Handle callback-based answer for the second adaptive question.
 
     Args:
         callback: Incoming callback query.
@@ -370,32 +498,53 @@ async def process_health(callback: CallbackQuery, state: FSMContext) -> None:
     """
     await callback.answer()
     data = callback.data
+    data_state = await state.get_data()
+    answers = data_state.get("answers", {})
 
-    if data == "assist:yes":
-        await state.set_state(AIAssistantFSM.ask_health_details)
-        await callback.message.edit_text(
-            "Пожалуйста, опишите ваши ограничения по здоровью.",
-        )
-    elif data in ("assist:no", "assist:skip"):
-        await state.update_data(health=None)
-        await _call_ai_and_transition(callback, state)
+    if data == "assist:skip":
+        answers["q2"] = "Пропущено"
+    else:
+        parts = data.split(":", 2)
+        if len(parts) >= 3:
+            value = parts[2]
+        else:
+            value = parts[1] if len(parts) > 1 else data
+
+        label_map = {
+            "beginner": "Начинающий",
+            "intermediate": "Средний",
+            "advanced": "Продвинутый",
+            "15": "15 мин",
+            "30": "30 мин",
+            "45": "45 мин",
+            "60": "60 мин",
+            "morning": "Утром",
+            "evening": "Вечером",
+            "both": "Утром и вечером",
+            "daily": "Каждый день",
+            "several_per_week": "Несколько раз в неделю",
+            "once_per_week": "Раз в неделю",
+        }
+        answers["q2"] = label_map.get(value, value)
+
+    await state.update_data(answers=answers)
+    await _call_ai_and_transition(callback, state)
 
 
-# ===========================================================================
-# State: ask_health_details — free-text health info, then call AI
-# ===========================================================================
-
-
-@router.message(AIAssistantFSM.ask_health_details)
-async def process_health_details(message: Message, state: FSMContext) -> None:
-    """Store the health details, call the AI service, and move to confirmation.
+@router.message(AIAssistantFSM.ask_adaptive_q2)
+async def process_adaptive_q2_text(message: Message, state: FSMContext) -> None:
+    """Handle text-based answer for the second adaptive question.
 
     Args:
-        message: Incoming text message with health details.
+        message: Incoming text message.
         state: FSM context for the current user.
     """
-    health = (message.text or "").strip() or None
-    await state.update_data(health=health)
+    text = (message.text or "").strip()
+    data_state = await state.get_data()
+    answers = data_state.get("answers", {})
+
+    answers["q2"] = text if text else "Пропущено"
+    await state.update_data(answers=answers)
     await _call_ai_and_transition(message, state)
 
 

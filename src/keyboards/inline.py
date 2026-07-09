@@ -668,63 +668,148 @@ def get_cancel_input_keyboard() -> InlineKeyboardMarkup:
 
 
 # ---------------------------------------------------------------------------
-# Duration selection keyboard — used in the AI assistant wizard
+# New habit choice keyboard — manual or AI assistant
 # ---------------------------------------------------------------------------
 
 
-def get_duration_keyboard() -> InlineKeyboardMarkup:
-    """Build an inline keyboard for selecting how long the user has been
-    practising the habit.
+def get_new_habit_choice_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for choosing between manual and AI-assisted
+    habit creation.
 
     Returns:
-        InlineKeyboardMarkup with duration options and navigation controls.
+        InlineKeyboardMarkup with two choice buttons and a back button.
     """
     builder = InlineKeyboardBuilder()
     builder.button(
-        text="Только начал",
-        callback_data="duration:just_started",
+        text="✍️ Добавить вручную",
+        callback_data="new_habit:manual",
     )
     builder.button(
-        text="Несколько месяцев",
-        callback_data="duration:months",
+        text="🤖 Запросить помощь ассистента",
+        callback_data="new_habit:ai",
     )
+    builder.button(text="🔙 Назад", callback_data="nav:back")
+    builder.adjust(1, 1, 1)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# AI fallback keyboard — shown when the AI service is unavailable
+# ---------------------------------------------------------------------------
+
+
+def get_ai_fallback_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for the AI error fallback scenario.
+
+    Offers a button to switch to manual creation and a back button.
+
+    Returns:
+        InlineKeyboardMarkup with manual creation and back buttons.
+    """
+    builder = InlineKeyboardBuilder()
     builder.button(
-        text="Больше года",
-        callback_data="duration:years",
+        text="✍️ Создать вручную",
+        callback_data="new_habit:manual",
     )
-    builder.button(
-        text="⏭ Пропустить",
-        callback_data="duration:skip",
-    )
+    builder.button(text="🔙 Назад", callback_data="nav:back")
+    builder.adjust(1, 1)
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Adaptive question keyboards — used in the AI assistant wizard
+# ---------------------------------------------------------------------------
+
+
+def get_sport_intensity_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for selecting sport intensity level.
+
+    Returns:
+        InlineKeyboardMarkup with intensity options, skip, and navigation.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🌱 Начинающий", callback_data="assist:intensity:beginner")
+    builder.button(text="🏃 Средний", callback_data="assist:intensity:intermediate")
+    builder.button(text="💪 Продвинутый", callback_data="assist:intensity:advanced")
+    builder.button(text="⏭ Пропустить", callback_data="assist:skip")
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 1, 2)
     return builder.as_markup()
 
 
-# ---------------------------------------------------------------------------
-# AI assistant keyboard — Yes / No / Skip / Back / Cancel
-# ---------------------------------------------------------------------------
-
-
-def get_ai_assistant_keyboard() -> InlineKeyboardMarkup:
-    """Build an inline keyboard for the AI assistant dialog flow.
-
-    Provides action buttons for navigating the AI assistant wizard:
-    ``✅ Да`` (assist:yes), ``❌ Нет`` (assist:no),
-    ``⏭ Пропустить`` (assist:skip), ``⬅️ Назад`` (nav:back),
-    ``❌ Отмена`` (nav:cancel).
+def get_sport_duration_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for selecting sport duration per day.
 
     Returns:
-        InlineKeyboardMarkup with two rows: Yes/No/Skip and Back/Cancel.
+        InlineKeyboardMarkup with duration options, skip, and navigation.
     """
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Да", callback_data="assist:yes")
-    builder.button(text="❌ Нет", callback_data="assist:no")
+    builder.button(text="15 мин", callback_data="assist:duration:15")
+    builder.button(text="30 мин", callback_data="assist:duration:30")
+    builder.button(text="45 мин", callback_data="assist:duration:45")
+    builder.button(text="60 мин", callback_data="assist:duration:60")
     builder.button(text="⏭ Пропустить", callback_data="assist:skip")
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
-    builder.adjust(3, 2)
+    builder.adjust(1, 1, 1, 1, 1, 2)
+    return builder.as_markup()
+
+
+def get_hygiene_time_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for selecting time of day for hygiene habits.
+
+    Returns:
+        InlineKeyboardMarkup with time-of-day options, skip, and navigation.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🌅 Утром", callback_data="assist:time:morning")
+    builder.button(text="🌙 Вечером", callback_data="assist:time:evening")
+    builder.button(text="🔄 Оба", callback_data="assist:time:both")
+    builder.button(text="⏭ Пропустить", callback_data="assist:skip")
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(1, 1, 1, 1, 2)
+    return builder.as_markup()
+
+
+def get_generic_frequency_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard for selecting habit frequency (generic).
+
+    Returns:
+        InlineKeyboardMarkup with frequency options, skip, and navigation.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="📅 Каждый день",
+        callback_data="assist:freq:daily",
+    )
+    builder.button(
+        text="📆 Несколько раз в неделю",
+        callback_data="assist:freq:several_per_week",
+    )
+    builder.button(
+        text="📋 Раз в неделю",
+        callback_data="assist:freq:once_per_week",
+    )
+    builder.button(text="⏭ Пропустить", callback_data="assist:skip")
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(1, 1, 1, 1, 2)
+    return builder.as_markup()
+
+
+def get_skip_only_keyboard() -> InlineKeyboardMarkup:
+    """Build an inline keyboard with only a skip button for free-text questions.
+
+    Returns:
+        InlineKeyboardMarkup with skip, back, and cancel buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⏭ Пропустить", callback_data="assist:skip")
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(1, 2)
     return builder.as_markup()
 
 

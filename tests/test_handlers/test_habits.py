@@ -138,7 +138,7 @@ async def test_new_habit_start(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        message = await full_client.send_callback("main_menu:new_habit")
+        message = await full_client.send_callback("new_habit:manual")
 
     assert "Введите название привычки" in message.text
 
@@ -155,7 +155,7 @@ async def test_full_wizard_flow(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        msg = await full_client.send_callback("main_menu:new_habit")
+        msg = await full_client.send_callback("new_habit:manual")
         assert "Введите название привычки" in msg.text
 
         msg = await full_client.send_message("Утренняя пробежка")
@@ -192,7 +192,7 @@ async def test_cancel_during_wizard(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Тестовая привычка")
         msg = await full_client.send_callback("nav:cancel")
         assert "Создание привычки отменено" in msg.text
@@ -215,7 +215,7 @@ async def test_empty_title_rejected(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_callback("new_habit:manual")
         msg = await full_client.send_message("   ")
         assert "от 1 до 200 символов" in msg.text
 
@@ -232,7 +232,7 @@ async def test_end_time_keyboard_filters_by_start_time(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Чтение")
         msg = await full_client.send_callback("time:12:00")
         assert "Выберите время окончания" in msg.text
@@ -261,7 +261,7 @@ async def test_habit_with_null_end_time(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Медитация")
         await full_client.send_callback("time:09:00")
         msg = await full_client.send_callback("time:null")
@@ -290,7 +290,7 @@ async def test_end_time_not_greater_than_start_time_rejected(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Йога")
         await full_client.send_callback("time:12:00")
         msg = await full_client.send_callback("time:10:00")
@@ -309,7 +309,7 @@ async def test_start_time_keyboard_has_no_null_option(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_callback("new_habit:manual")
         msg = await full_client.send_message("Бег")
         keyboard = msg.reply_markup.inline_keyboard
         all_cb = {btn.callback_data for row in keyboard for btn in row}
@@ -801,7 +801,7 @@ async def test_create_habit_no_conflict(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Чтение")
         await full_client.send_callback("time:10:00")
         await full_client.send_callback("time:11:00")
@@ -830,7 +830,7 @@ async def test_create_habit_with_conflict(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Чтение")
         await full_client.send_callback("time:08:00")
         # End time after existing 09:00 → still overlaps
@@ -860,7 +860,7 @@ async def test_create_habit_force_add(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Форс")
         await full_client.send_callback("time:08:00")
         await full_client.send_callback("time:09:00")
@@ -997,7 +997,7 @@ async def test_conflict_keyboard_creation_buttons(
         "src.handlers.habits.get_db",
         side_effect=_mock_get_db_context(async_session),
     ):
-        await full_client.send_callback("main_menu:new_habit")
+        await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Y")
         await full_client.send_callback("time:08:00")
         await full_client.send_callback("time:09:00")

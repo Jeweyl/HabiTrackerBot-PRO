@@ -11,16 +11,19 @@ class Settings(BaseSettings):
         DATABASE_URL: Async PostgreSQL connection string (asyncpg driver).
         REDIS_URL: Redis connection string.
         ADMIN_ID: Telegram user ID of the bot administrator.
-        OPENROUTER_API_KEY: API key for OpenRouter AI service.
+        ROUTER_API_KEY: API key for OpenRouter AI service.
         AI_MODEL: AI model identifier (default: "google/gemini-1.5-flash").
+        AI_FALLBACK_MODEL: Fallback model when primary returns empty (default:
+            "meta-llama/llama-3.1-8b-instruct:free").
     """
 
     BOT_TOKEN: str
     DATABASE_URL: str
     REDIS_URL: str
     ADMIN_ID: int
-    OPENROUTER_API_KEY: str = ""
+    ROUTER_API_KEY: str = ""
     AI_MODEL: str = "google/gemini-1.5-flash"
+    AI_FALLBACK_MODEL: str = "meta-llama/llama-3.1-8b-instruct:free"
 
     model_config = SettingsConfigDict(
         env_file=".env",

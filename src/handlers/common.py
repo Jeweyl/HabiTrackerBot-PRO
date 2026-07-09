@@ -13,6 +13,7 @@ from src.db.session import get_db
 from src.keyboards.inline import (
     MAIN_MENU_BUTTONS,
     get_main_menu_keyboard,
+    get_new_habit_choice_keyboard,
 )
 from src.states.fsm import MainFSM
 
@@ -88,6 +89,64 @@ async def menu_reply_keyboard(message: Message, state: FSMContext) -> None:
     await message.answer(
         "🏠 Главное меню бота\nВыберите действие:",
         reply_markup=get_main_menu_keyboard(),
+    )
+
+
+# ===========================================================================
+# Specific main menu handlers — must be registered BEFORE the generic
+# ``main_menu:*`` handler below.
+# ===========================================================================
+
+
+@router.callback_query(F.data == "main_menu:help")
+async def handle_main_menu_help(callback: CallbackQuery, state: FSMContext) -> None:
+    """Show a help message with bot usage instructions.
+
+    Args:
+        callback: Incoming callback query from the help button.
+        state: FSM context for the current user.
+    """
+    await callback.answer()
+    await state.set_state(MainFSM.main_menu)
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔙 Назад", callback_data="nav:cancel")
+    keyboard = builder.as_markup()
+
+    help_text = (
+        "📖 *Как пользоваться ботом:*\n\n"
+        "• *➕ Создать привычку* — создайте новую привычку вручную "
+        "или с помощью ИИ-ассистента\n"
+        "• *📋 Привычки* — просмотр и управление вашими привычками\n"
+        "• *📊 Статистика* — просмотр статистики выполнения привычек\n"
+        "• *⚙️ Настройки* — настройка языка, часового пояса, напоминаний\n"
+        "• *❓ Помощь* — вы здесь!\n\n"
+        "По вопросам: @support"
+    )
+    await callback.message.edit_text(
+        help_text,
+        reply_markup=keyboard,
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(F.data == "main_menu:new_habit")
+async def handle_main_menu_new_habit(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    """Show the new habit choice menu (manual or AI assistant).
+
+    Args:
+        callback: Incoming callback query from the new habit button.
+        state: FSM context for the current user.
+    """
+    await callback.answer()
+    await state.set_state(MainFSM.main_menu)
+    await callback.message.edit_text(
+        "Выберите способ создания привычки:",
+        reply_markup=get_new_habit_choice_keyboard(),
     )
 
 

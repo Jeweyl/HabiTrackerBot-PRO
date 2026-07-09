@@ -13,33 +13,26 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 """OpenRouter chat completions endpoint."""
 
 
-async def send_to_ai(
+async def _call_openrouter(
     prompt: str,
-    model: str | None = None,
+    model: str,
 ) -> dict | None:
-    """Send a prompt to the OpenRouter API and return the parsed JSON response.
-
-    Performs an asynchronous POST request to the OpenRouter chat completions
-    endpoint.  On success, extracts the text content from the first choice,
-    attempts to parse it as JSON, and returns the resulting dictionary.
+    """Make a single OpenRouter API call and return the parsed JSON dict.
 
     Args:
-        prompt: The user prompt to send to the AI model.
-        model: Optional model identifier override.  Defaults to
-            ``settings.AI_MODEL`` ("google/gemini-1.5-flash") when ``None``.
+        prompt: The user prompt to send.
+        model: The model identifier to use.
 
     Returns:
-        A dictionary parsed from the AI's JSON response, or ``None`` if the
-        request failed, the response was not valid JSON, or the status code
-        was not 200.
+        Parsed JSON dict on success, or ``None`` on any failure.
     """
     headers = {
-        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {settings.ROUTER_API_KEY}",
         "Content-Type": "application/json",
     }
 
     payload = {
-        "model": model or settings.AI_MODEL,
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
         "max_tokens": 500,
@@ -83,6 +76,14 @@ async def send_to_ai(
         )
         return None
 
+    # Guard against None / empty content
+    if not content or (isinstance(content, str) and not content.strip()):
+        logger.warning(
+            "OpenRouter model '%s' returned empty content (None or blank).",
+            model,
+        )
+        return None
+
     try:
         parsed = json.loads(content)
     except (json.JSONDecodeError, TypeError):
@@ -102,36 +103,78 @@ async def send_to_ai(
     return parsed
 
 
-def build_prompt(user_answers: dict) -> str:
-    """Construct a structured AI prompt from the user's FSM-collected answers.
+async def send_to_ai(
+    prompt: str,
+    model: str | None = None,
+) -> dict | None:
+    """Send a prompt to the OpenRouter API and return the parsed JSON response.
+
+    Tries the primary model first.  If it returns an empty response (content
+    is ``None``), retries once with the fallback model defined in
+    ``settings.AI_FALLBACK_MODEL``.
+
+    Args:
+        prompt: The user prompt to send to the AI model.
+        model: Optional model identifier override.  Defaults to
+            ``settings.AI_MODEL`` ("google/gemini-1.5-flash") when ``None``.
+
+    Returns:
+        A dictionary parsed from the AI's JSON response, or ``None`` if all
+        attempts failed.
+    """
+    primary_model = model or settings.AI_MODEL
+    fallback_model = settings.AI_FALLBACK_MODEL
+
+    result = await _call_openrouter(prompt, primary_model)
+    if result is not None:
+        return result
+
+    if fallback_model and fallback_model != primary_model:
+        logger.info(
+            "Primary model '%s' returned empty; retrying with fallback '%s'.",
+            primary_model,
+            fallback_model,
+        )
+        result = await _call_openrouter(prompt, fallback_model)
+        if result is not None:
+            return result
+
+    return None
+
+
+def build_prompt(habit_title: str, answers: dict) -> str:
+    """Construct a structured AI prompt from the habit title and adaptive answers.
 
     Formats the collected answers into a clear instruction for the AI model
     to generate a SMART goal plan.  Missing or ``None`` values are replaced
     with ``"Not provided"``.
 
     Args:
-        user_answers: Dictionary with keys ``title``, ``experience``,
-            ``duration``, ``details``, and ``health``.  Any key may be
-            absent or have a ``None`` value.
+        habit_title: The habit title entered by the user.
+        answers: Dictionary with adaptive question answers.  Keys vary
+            depending on the keyword-matched question flow.  Any value may
+            be ``None`` or absent.
 
     Returns:
         A formatted prompt string ready to be sent to ``send_to_ai``.
     """
-    title = user_answers.get("title") or "Not provided"
-    experience = user_answers.get("experience") or "Not provided"
-    duration = user_answers.get("duration") or "Not provided"
-    details = user_answers.get("details") or "Not provided"
-    health = user_answers.get("health") or "Not provided"
+    # Build a natural-language summary of the answers
+    answers_parts: list[str] = []
+    for key, value in answers.items():
+        if value and value != "Пропущено":
+            answers_parts.append(f"{key}: {value}")
+
+    answers_text = (
+        "; ".join(answers_parts) if answers_parts else "No additional details provided"
+    )
 
     prompt = (
         "You are a habit coach. The user wants to develop the habit: "
-        f"'{title}'. "
-        f"Experience: {experience}. "
-        f"Duration: {duration}. "
-        f"Details: {details}. "
-        f"Health concerns: {health}. "
-        "Please convert this into a SMART goal and return ONLY a valid JSON "
-        "with the following keys: refined_habit, metric_name, metric_unit, "
+        f"'{habit_title}'. "
+        f"They mentioned: {answers_text}. "
+        "Based on this, please convert this into a SMART goal and return "
+        "ONLY a valid JSON with the following keys: "
+        "refined_habit, metric_name, metric_unit, "
         "target_per_day (integer), period ('daily'/'weekly'), comment (string)."
     )
 

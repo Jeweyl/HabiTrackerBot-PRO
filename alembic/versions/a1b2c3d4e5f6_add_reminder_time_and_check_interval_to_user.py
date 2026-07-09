@@ -1,7 +1,7 @@
 """add_reminder_time_and_check_interval_to_user
 
 Revision ID: a1b2c3d4e5f6
-Revises: 9f4d2b6c1e38
+Revises: 1defc8ee8f24
 Create Date: 2026-07-08 17:28:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'a1b2c3d4e5f6'
-down_revision: Union[str, Sequence[str], None] = '9f4d2b6c1e38'
+down_revision: Union[str, Sequence[str], None] = '1defc8ee8f24'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
