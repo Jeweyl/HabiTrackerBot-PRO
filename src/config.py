@@ -57,17 +57,35 @@ class Settings(BaseSettings):
             )
         return v
 
-    @field_validator("DATABASE_URL")
+    @field_validator("DATABASE_URL", mode="before")
     @classmethod
-    def normalize_database_url(cls, v: str) -> str:
-        """Auto-convert ``postgresql://`` to ``postgresql+asyncpg://``.
+    def fallback_database_url(cls, v: str) -> str:
+        """Fall back to ``DATABASE_PUBLIC_URL`` / ``POSTGRES_URL`` if empty.
 
-        Railway provides ``postgresql://`` by default, but SQLAlchemy async
-        engine requires the ``+asyncpg`` driver suffix.
+        Railway sometimes exposes the public connection URL under a different
+        name. This validator runs before pydantic assigns the value, so we
+        can check alternative env vars.
         """
-        v = v.strip()
+        if isinstance(v, str):
+            v = v.strip()
+        if not v:
+            import os
+
+            v = (os.getenv("DATABASE_PUBLIC_URL") or os.getenv("POSTGRES_URL") or "").strip()
         if v.startswith("postgresql://"):
             v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+
+    @field_validator("REDIS_URL", mode="before")
+    @classmethod
+    def fallback_redis_url(cls, v: str) -> str:
+        """Fall back to ``REDIS_PUBLIC_URL`` if empty (Railway compatibility)."""
+        if isinstance(v, str):
+            v = v.strip()
+        if not v:
+            import os
+
+            v = (os.getenv("REDIS_PUBLIC_URL") or "").strip()
         return v
 
 

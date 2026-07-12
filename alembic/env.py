@@ -25,12 +25,30 @@ def _get_database_url() -> str:
 
     Auto-converts ``postgresql://`` to ``postgresql+asyncpg://`` for
     compatibility with SQLAlchemy async engine (Railway provides the former).
+    Falls back to ``DATABASE_PUBLIC_URL`` / ``POSTGRES_URL`` if ``DATABASE_URL``
+    is not set (Railway sometimes exposes the public URL under a different name).
     """
     url = os.getenv("DATABASE_URL", "").strip()
     if not url:
+        url = os.getenv("DATABASE_PUBLIC_URL", "").strip()
+    if not url:
+        url = os.getenv("POSTGRES_URL", "").strip()
+    if not url:
+        # Debug: show available env keys (names only, no values) to help
+        # diagnose Railway variable injection issues.
+        import sys
+
+        env_keys = sorted(os.environ.keys())
+        print(
+            "DATABASE_URL is not set. "
+            "Available environment variable names (no values):",
+            file=sys.stderr,
+        )
+        print(", ".join(env_keys), file=sys.stderr)
         raise RuntimeError(
             "DATABASE_URL environment variable is not set. "
-            "Set it before running migrations."
+            "Set it before running migrations. "
+            f"Available env keys: {', '.join(env_keys)}"
         )
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
