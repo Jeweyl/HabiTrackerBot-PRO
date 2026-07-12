@@ -14,9 +14,10 @@ from src.config import settings
 async_engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
-    pool_size=5,
+    pool_size=settings.DB_POOL_SIZE,
     max_overflow=10,
 )
+
 
 async_session = async_sessionmaker(
     bind=async_engine,

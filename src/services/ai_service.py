@@ -1,11 +1,13 @@
 """Asynchronous service for communicating with the OpenRouter API."""
 
+import asyncio
 import json
 import logging
 
 import aiohttp
 
 from src.config import settings
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ async def _call_openrouter(
         "max_tokens": 1000,
     }
 
-    timeout = aiohttp.ClientTimeout(total=15)
+    timeout = aiohttp.ClientTimeout(total=settings.AI_TIMEOUT)
 
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -57,8 +59,8 @@ async def _call_openrouter(
                     return None
 
                 data = await response.json()
-    except aiohttp.ClientError as exc:
-        logger.error("Network error calling OpenRouter API: %s", exc)
+    except (aiohttp.ClientError, asyncio.TimeoutError, TimeoutError) as exc:
+        logger.error("Network/timeout error calling OpenRouter API: %s", exc)
         return None
     except (json.JSONDecodeError, ValueError) as exc:
         logger.error("Failed to parse OpenRouter response JSON: %s", exc)
@@ -66,6 +68,7 @@ async def _call_openrouter(
     except Exception as exc:
         logger.error("Unexpected error calling OpenRouter API: %s", exc)
         return None
+
 
     try:
         content = data["choices"][0]["message"]["content"]

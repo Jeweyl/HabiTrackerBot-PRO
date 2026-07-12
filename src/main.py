@@ -5,6 +5,7 @@ import logging
 import signal
 
 from src.bot import bot, dp, redis
+from src.config import settings
 from src.handlers.admin import router as admin_router
 from src.handlers.ai_assistant import router as ai_assistant_router
 from src.handlers.common import router as common_router
@@ -16,8 +17,6 @@ from src.services.reminder_service import process_reminders
 
 logger = logging.getLogger(__name__)
 
-REMINDER_POLL_SECONDS = 60
-"""How often the reminder loop checks for due notifications."""
 
 
 def _setup_logging() -> None:
@@ -30,7 +29,8 @@ def _setup_logging() -> None:
 
 async def _reminder_loop(stop_event: asyncio.Event) -> None:
     """Periodically send due reminders until *stop_event* is set."""
-    logger.info("Reminder loop started (interval=%ss)", REMINDER_POLL_SECONDS)
+    poll_seconds = settings.REMINDER_POLL_SECONDS
+    logger.info("Reminder loop started (interval=%ss)", poll_seconds)
     while not stop_event.is_set():
         try:
             await process_reminders(bot)
@@ -38,9 +38,10 @@ async def _reminder_loop(stop_event: asyncio.Event) -> None:
             logger.exception("Reminder loop iteration failed")
 
         try:
-            await asyncio.wait_for(stop_event.wait(), timeout=REMINDER_POLL_SECONDS)
+            await asyncio.wait_for(stop_event.wait(), timeout=poll_seconds)
         except asyncio.TimeoutError:
             continue
+
 
 
 async def main() -> None:

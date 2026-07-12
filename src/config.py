@@ -63,6 +63,10 @@ class Settings(BaseSettings):
         AI_MODEL: AI model identifier (default: "deepseek/deepseek-v4-flash").
         AI_FALLBACK_MODEL: Fallback model when primary returns empty (default:
             "meta-llama/llama-3.1-8b-instruct").
+        AI_TIMEOUT: OpenRouter HTTP timeout in seconds (default: 30).
+        BOT_HTTP_TIMEOUT: Telegram Bot API HTTP timeout in seconds (default: 10).
+        DB_POOL_SIZE: SQLAlchemy async connection pool size (default: 5).
+        REMINDER_POLL_SECONDS: Reminder loop interval in seconds (default: 300).
     """
 
     BOT_TOKEN: str = ""
@@ -72,6 +76,11 @@ class Settings(BaseSettings):
     ROUTER_API_KEY: str = ""
     AI_MODEL: str = "deepseek/deepseek-v4-flash"
     AI_FALLBACK_MODEL: str = "meta-llama/llama-3.1-8b-instruct"
+    AI_TIMEOUT: int = 30
+    BOT_HTTP_TIMEOUT: int = 10
+    DB_POOL_SIZE: int = 5
+    REMINDER_POLL_SECONDS: int = 300
+
 
     model_config = SettingsConfigDict(
         env_file=_env_file,

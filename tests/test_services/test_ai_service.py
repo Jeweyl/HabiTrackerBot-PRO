@@ -1,13 +1,15 @@
 """Unit tests for the OpenRouter AI service (src/services/ai_service.py)."""
 
+import asyncio
 import json
 import logging
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.services.ai_service import build_prompt, send_to_ai
+
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +95,52 @@ async def test_send_to_ai_error_status(caplog: pytest.LogCaptureFixture) -> None
     assert any("status 500" in record.message for record in caplog.records)
 
 
+@pytest.mark.asyncio
+async def test_send_to_ai_timeout_returns_none(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """send_to_ai must return None on timeout and must not raise."""
+    with caplog.at_level(logging.ERROR):
+        with patch(
+            "aiohttp.ClientSession.post",
+            side_effect=asyncio.TimeoutError(),
+        ):
+            result = await send_to_ai("Test prompt")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_send_to_ai_uses_settings_ai_timeout() -> None:
+    """OpenRouter ClientTimeout.total must come from settings.AI_TIMEOUT."""
+    content = json.dumps(_SAMPLE_AI_RESPONSE)
+    mock_api_response = {"choices": [{"message": {"content": content}}]}
+    mock_response = _build_mock_response(200, mock_api_response)
+
+    with (
+        patch("src.services.ai_service.settings") as mock_settings,
+        patch("aiohttp.ClientSession") as mock_session_cls,
+        patch("aiohttp.ClientTimeout") as mock_timeout_cls,
+    ):
+        mock_settings.AI_TIMEOUT = 42
+        mock_settings.AI_MODEL = "test-model"
+        mock_settings.AI_FALLBACK_MODEL = "test-fallback"
+        mock_settings.ROUTER_API_KEY = "test-key"
+
+        mock_session = MagicMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+        mock_session.post = MagicMock(return_value=mock_response)
+        mock_session_cls.return_value = mock_session
+
+        result = await send_to_ai("Test prompt")
+
+    mock_timeout_cls.assert_called_with(total=42)
+    assert result == _SAMPLE_AI_RESPONSE
+
+
 def test_build_prompt() -> None:
+
     """build_prompt should include habit title and adaptive answers, handle
     missing keys and skipped values."""
     # All values present
