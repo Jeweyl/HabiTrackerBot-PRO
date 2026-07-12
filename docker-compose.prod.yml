@@ -74,21 +74,11 @@ services:
       - bot_network
     mem_limit: 256m
 
-  web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-    container_name: habits_web_prod
-    restart: unless-stopped
-    depends_on:
-      - api
-    ports:
-      - "8080:80"
-    networks:
-      - bot_network
-    mem_limit: 64m
+  # Dashboard: deploy from HabiTrackerBOT-WEB (../Web), not this compose.
+  # Set bot DASHBOARD_PUBLIC_URL to the public web URL.
 
 volumes:
+
   postgres_data_prod:
 
 

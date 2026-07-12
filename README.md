@@ -98,9 +98,11 @@ Copy `.env.example` → `.env` (or `.env.prod.example` → `.env.prod`). Require
 | `ADMIN_ID` | Admin Telegram user id |
 | `ROUTER_API_KEY` | OpenRouter (AI) |
 | `API_JWT_SECRET` | Dashboard JWT HMAC (change in prod) |
-| `DASHBOARD_PUBLIC_URL` | Vue app public URL |
+| `DASHBOARD_PUBLIC_URL` | Public URL of HabiTrackerBOT-WEB |
+| `API_CORS_ORIGINS` | Web origin(s) for browser stats API |
 
-Full table and Railway notes live in git history / ops runbooks; prefer env examples in-repo over public docs.
+Dashboard UI is **not** in this repo — see sibling **HabiTrackerBOT-WEB** (`../Web`).
+
 
 ### Production
 
@@ -118,7 +120,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 - **Time picker:** hour → minutes (00/15/30/45); shared grid for UI and AI
 - **Stats:** OTT in Redis → JWT → read-only FastAPI → Vue
 
-Key paths: `src/handlers/`, `src/services/`, `src/api/`, `web/`, `tests/`.
+Key paths: `src/handlers/`, `src/services/`, `src/api/`, `tests/`.  
+Vue dashboard: separate repo **HabiTrackerBOT-WEB**.
+
 
 ---
 
@@ -128,16 +132,15 @@ Key paths: `src/handlers/`, `src/services/`, `src/api/`, `web/`, `tests/`.
 black --check src/ tests/
 ruff check src/ tests/
 pytest
-# web: vue-tsc + vite build (see CI)
 ```
+
 
 ---
 
 ## Repository layout
 
 ```
-src/           bot, API, services, i18n
-web/           Vue dashboard
+src/           bot, FastAPI stats API, services, i18n
 tests/         pytest
 landing/en/    EN marketing page (publish to public HabiTrackerBot only)
 landing/ru/    RU marketing page (publish to public HabiTracker-RU only)
@@ -145,8 +148,17 @@ docs/          internal product specs
 alembic/       migrations
 ```
 
+**Related repos**
+
+| Repo | Role |
+|------|------|
+| **HabiTrackerBot-PRO** (this) | Telegram bot + stats API |
+| **HabiTrackerBOT-WEB** | Vue dashboard |
+| HabiTrackerBot / HabiTracker-RU | public landings only |
+
 **Git remote:** this product tree must track **HabiTrackerBot-PRO** (private).  
-Never push `src/`, `web/` app source, or secrets to public demo repos — only contents of `landing/en` or `landing/ru` (+ media).
+Never push `src/` or secrets to public demo repos — only contents of `landing/en` or `landing/ru` (+ media).
+
 
 ```powershell
 git remote -v

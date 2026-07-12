@@ -61,17 +61,13 @@ services:
     ports:
       - "8000:8000"
 
-  # Vue dashboard (C2) — nginx SPA + /api proxy to api:8000
-  web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-    container_name: habits_web
-    restart: "no"
-    depends_on:
-      - api
-    ports:
-      - "8080:80"
+  # Vue dashboard lives in sibling repo/folder ../Web (HabiTrackerBOT-WEB).
+  # Local full stack:
+  #   docker compose up api
+  #   cd ../Web && npm run dev
+  # Or build web against this api:
+  #   docker build -t habits_web --build-arg VITE_API_BASE_URL=http://localhost:8000 ../Web
+
 
 volumes:
   postgres_data:
