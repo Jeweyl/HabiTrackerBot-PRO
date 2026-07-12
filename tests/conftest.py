@@ -1,11 +1,9 @@
 """Pytest fixtures for async database and bot handler tests."""
 
-import asyncio
 import importlib
 from dataclasses import dataclass
 from typing import AsyncGenerator
 
-import pytest
 import pytest_asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.base import BaseSession
@@ -30,14 +28,6 @@ from src.db.models import Base
 # ---------------------------------------------------------------------------
 # Database fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create a session-scoped event loop for async tests."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -172,6 +162,9 @@ class TestClient:
         bot: The Bot instance (its session is a MockTelegramSession).
         dp: The Dispatcher instance under test.
     """
+
+    # Prevent pytest from collecting this helper as a test class.
+    __test__ = False
 
     bot: Bot
     dp: Dispatcher

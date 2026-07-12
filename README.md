@@ -37,12 +37,14 @@
 - ⏰ **Автосдвиг окончания** — при изменении времени начала, время окончания автоматически сдвигается с сохранением длительности (если не задано вручную)
 
 ### 📊 Статистика
-- 📈 **Процент выполнения** за последние 7 дней
+- 📈 **Процент выполнения** за 7 / 30 дней (в боте и на web-дашборде)
 - 🔥 **Streak (серия дней)** — количество дней подряд без пропусков
 - 📋 **Счётчики** — выполнено / пропущено / всего привычек
+- 🖥 **Vue-дашборд** — графики completion, breakdown по привычкам, read-only schedule
+- 🔗 **One-time token login** — кнопка «Открыть дашборд» в статистике бота
 
 ### ⚙️ Настройки
-- 🌐 **Язык** — выбор из 5 языков
+- 🌐 **Язык** — RU / EN (i18n-словари, расширяемо)
 - 🕐 **Часовой пояс** — UTC от -12 до +14
 - ⏰ **Время уведомлений** — 24 слота или отключение
 - ⏱ **Интервал проверки** — от 5 до 60 минут (check-in по незавершённым задачам)
@@ -52,6 +54,12 @@
 - ⏱ **Anti-spam** по `check_interval` (поле `last_checkin_at` на задаче)
 - ✅/❌ **Ответ в один тап** — complete / skip без повторной спам-рассылки
 
+### 🤖 AI-ассистент (привычки и задачи)
+- 🔁 **Multi-turn** — до 3 уточняющих вопросов от модели
+- 📐 **Строгий JSON-контракт** (Pydantic) + soft-fail на пустой/битый ответ
+- ⏱ **Сетка 15 минут** — час → минуты (00/15/30/45); AI не «мухлюет» с duration
+- 📅 **Привычка** → шаблон + генерация задач; **задача** → один пункт расписания (`habit_id=None`)
+
 ---
 
 
@@ -60,14 +68,17 @@
 | Компонент | Технология |
 |-----------|-----------|
 | 🐍 Язык | Python 3.11+ |
-| 🤖 Фреймворк | aiogram 3.x |
-| 🗄 База данных | PostgreSQL 15 |
-| ⚡ Кэш / брокер | Redis 7 |
+| 🤖 Бот | aiogram 3.x |
+| 🌐 Stats API | FastAPI + Uvicorn + PyJWT |
+| � Dashboard | Vue 3 + Vite + TypeScript + Chart.js |
+| �🗄 База данных | PostgreSQL 15 |
+| ⚡ Кэш / FSM / OTT | Redis 7 |
 | 📦 ORM | SQLAlchemy 2.0 (async) |
 | 🔄 Миграции | Alembic |
-| 🐳 Контейнеризация | Docker + Docker Compose |
-| 🧠 AI | OpenRouter API (Gemini Flash) |
-| 🧪 Тестирование | pytest + pytest-asyncio |
+| 🐳 Контейнеризация | Docker + Docker Compose (bot, api, web) |
+| 🧠 AI | OpenRouter API (primary + fallback model) |
+| 🧪 Тестирование | pytest + pytest-asyncio (~370 tests) |
+| ✅ CI | GitHub Actions: Ruff, Black, pytest, vue-tsc, web build |
 
 ---
 
@@ -76,14 +87,15 @@
 Три команды, чтобы запустить проект:
 
 ```bash
-# 1. Запуск проекта (PostgreSQL, Redis, бот)
+# 1. Запуск (PostgreSQL, Redis, bot, API :8000, web :8080)
 docker compose up --build
 
 # 2. Применение миграций базы данных
 docker compose exec bot alembic upgrade head
 
-# 3. Запуск тестов (~80 тестов, SQLite in-memory)
+# 3. Запуск тестов (~370, SQLite in-memory)
 docker compose exec bot pytest -v
+# или локально: pytest -v
 ```
 
 ---
@@ -191,11 +203,25 @@ docker compose -f docker-compose.prod.yml up -d --build
 | Переменная | Описание | Пример |
 |-----------|----------|--------|
 | `BOT_TOKEN` | Токен Telegram-бота от @BotFather | `123456:ABCdef...` |
-| `DATABASE_URL` | URL подключения к PostgreSQL (asyncpg) | `postgresql+asyncpg://postgres:postgres@postgres:5432/habits_bot` |
-| `REDIS_URL` | URL подключения к Redis | `redis://redis:6379/0` |
+| `DATABASE_URL` | URL PostgreSQL (asyncpg) | `postgresql+asyncpg://postgres:postgres@postgres:5432/habits_bot` |
+| `REDIS_URL` | URL Redis | `redis://redis:6379/0` |
 | `ADMIN_ID` | Telegram ID администратора | `123456789` |
 | `ROUTER_API_KEY` | API-ключ OpenRouter (опционально) | `sk-or-v1-...` |
-| `AI_MODEL` | Модель AI-ассистента | `google/gemini-1.5-flash` |
+| `AI_MODEL` | Primary AI model | `deepseek/deepseek-v4-flash` |
+| `AI_FALLBACK_MODEL` | Fallback model | `meta-llama/llama-3.1-8b-instruct` |
+| `AI_TIMEOUT` | HTTP timeout OpenRouter (сек) | `30` |
+| `BOT_HTTP_TIMEOUT` | Timeout Telegram API (сек) | `10` |
+| `DB_POOL_SIZE` | SQLAlchemy pool size | `5` |
+| `REMINDER_POLL_SECONDS` | Интервал reminder/check-in loop | `300` |
+| `BOT_PUBLIC_URL` | Публичная ссылка на бота (onboarding) | `https://t.me/HabiTrakerBot` |
+| `CHANNEL_URL` | Канал (onboarding) | `https://t.me/HabiTraker` |
+| `ORIGINAL_BOT_USERNAME` | Username оригинала без `@` | `HabiTrakerBot` |
+| `API_JWT_SECRET` | **Обязательно сменить в prod** — HMAC JWT | long random secret |
+| `API_JWT_EXPIRE_MINUTES` | TTL access JWT | `60` |
+| `API_OTT_TTL_SECONDS` | TTL one-time dashboard token | `60` |
+| `API_CORS_ORIGINS` | CORS origins (пусто = `*`) | `https://dash.example.com` |
+| `API_HOST` / `API_PORT` | Bind stats API | `0.0.0.0` / `8000` |
+| `DASHBOARD_PUBLIC_URL` | Базовый URL Vue-дашборда | `http://localhost:8080` |
 
 ---
 
@@ -217,17 +243,18 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 **Файлы:** `src/states/fsm.py`, `src/handlers/habits.py`, `src/handlers/tasks.py`
 
-### 3. 🧠 Интеграция с OpenRouter и обработка невалидного JSON
+### 3. 🧠 AI pipeline: schema → normalize → apply
 
-**Проблема:** AI-модели нестабильны — могут вернуть пустой ответ, невалидный JSON или вообще не ответить.
+**Проблема:** AI-модели нестабильны и могут «мухлевать» со временем (15 мин в тексте, 60 мин в schedule).
 
-**Решение:** Многоуровневая обработка ошибок в `ai_service.py`:
-- Таймаут 15 секунд на запрос
-- Проверка HTTP-статуса и структуры ответа
-- Если основная модель вернула пустой ответ — автоматический повтор с fallback-моделью
-- Если JSON невалиден — graceful degradation: пользователю предлагается создать привычку вручную
+**Решение:**
+- `ai_service` — timeout из config, primary + fallback model, empty content → `None`
+- `ai_schema` — строгий Pydantic-контракт (`AskQuestions` \| `ProposePlan` \| `ProposeTaskPlan`)
+- `ai_normalize` — snap к сетке 15 мин, `end = start + duration`, preview warnings
+- `ai_apply` — запись habit/task + conflict check, без hardcoded 08:00–09:00
+- Multi-turn clarifying (max 3) + waiting indicator
 
-**Файлы:** `src/services/ai_service.py`, `src/handlers/ai_assistant.py`
+**Файлы:** `src/services/ai_*.py`, `src/handlers/ai_assistant.py`, `src/handlers/ai_task_assistant.py`
 
 ### 4. ⏰ Проверка конфликтов временных слотов
 
@@ -243,14 +270,14 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ### 5. 🧪 Тестирование и CI
 
-**Проблема:** Бот с AI, FSM и сложной логикой конфликтов нуждается в надёжных тестах, но поднимать PostgreSQL для тестов — медленно и неудобно.
+**Проблема:** Бот + AI + API + web нуждаются в быстрых изолированных тестах.
 
 **Решение:**
-- **~80 тестов** покрывают модели, обработчики и сервисы (включая асинхронные)
-- **In-memory SQLite** — тесты используют SQLite в памяти, что делает их быстрыми и изолированными (реальная PostgreSQL не требуется)
-- **GitHub Actions CI** — автоматический запуск Ruff, Black и pytest при каждом пуше в `main` и `dev` и при pull request
+- **~370 pytest** — handlers, services, API, i18n, time picker, AI schema/normalize/apply
+- **In-memory SQLite** + mock Telegram session / MemoryTokenStore
+- **CI:** Ruff, Black, pytest, `vue-tsc`, Vite build
 
-**Файлы:** `tests/`, `.github/workflows/ci.yml`
+**Файлы:** `tests/`, `pytest.ini`, `.github/workflows/ci.yml`, `web/`
 
 ---
 
@@ -259,25 +286,24 @@ docker compose -f docker-compose.prod.yml up -d --build
 Этот бот — не учебный туториал, а полноценный продукт с продуманной архитектурой. Вот что я сделал:
 
 - 🏗 **Спроектировал архитектуру** с разделением на слои (handlers → services → db) и реализовал FSM-мастер для пошагового создания привычек и задач
-- 🧠 **Интегрировал OpenRouter API** и реализовал многоуровневую обработку невалидных ответов: таймауты, fallback-модель, graceful degradation
-- ⏰ **Разработал систему проверки конфликтов** временных слотов с учётом пересечения по времени и дням недели
-- 🎯 **Реализовал динамическую фильтрацию** кнопок времени — UX-решение, которое предотвращает невалидный ввод на уровне интерфейса
-- 🧪 **Написал ~80 тестов** (включая асинхронные) с использованием in-memory SQLite для изоляции и скорости
-- 🐳 **Настроил Docker-контейнеризацию** и CI/CD через GitHub Actions с автоматическим линтингом и тестами
+- 🧠 **AI multi-turn** для привычек и задач со строгим JSON, normalize duration и apply в schedule
+- ⏰ **Конфликты** временных слотов + check-in уведомления по `check_interval`
+- 🎯 **Time picker 15 мин** (час → минуты) и единая сетка для UI и AI
+- 🖥 **Vue dashboard + FastAPI** (OTT→JWT, read-only stats/charts/schedule)
+- 🧪 **~370 тестов** + CI (lint, pytest, web typecheck/build)
 
 ---
 
 ## Запуск тестов
 
 ```bash
-# Все тесты (~80 штук)
-docker compose exec bot pytest
-
-# С подробным выводом
+# Все тесты (~370)
+pytest -v
+# или
 docker compose exec bot pytest -v
 
 # Конкретный файл
-docker compose exec bot pytest tests/test_db.py
+pytest tests/test_services/test_ai_normalize.py -v
 ```
 
 Тесты используют **SQLite in-memory** — реальная PostgreSQL не требуется.
@@ -297,71 +323,27 @@ docker compose exec bot pytest tests/test_db.py
 │   └── versions/                 # Файлы миграций
 ├── src/
 │   ├── __init__.py
-│   ├── bot.py                    # Инициализация бота и диспетчера
-│   ├── config.py                 # Конфигурация (pydantic-settings)
-│   ├── main.py                   # Точка входа
-│   ├── db/
-│   │   ├── __init__.py
-│   │   ├── models.py             # Модели SQLAlchemy (User, Habit, Task)
-│   │   └── session.py            # Подключение к БД (async)
-│   ├── handlers/
-│   │   ├── __init__.py
-│   │   ├── admin.py              # Админ-команды (/admin)
-│   │   ├── ai_assistant.py       # AI-мастер создания привычек (OpenRouter)
-│   │   ├── checkin.py            # Check-in yes/no callbacks
-│   │   ├── common.py             # Общие обработчики (навигация, /start)
-│   │   ├── habits.py             # Создание, список, редактирование привычек
-│   │   ├── settings.py           # Настройки пользователя
-│   │   ├── statistics.py         # Статистика и streaks
-│   │   └── tasks.py              # Календарь, задачи, конфликты, редактирование
-│   ├── keyboards/
-│   │   ├── __init__.py
-│   │   ├── inline.py             # Генераторы inline-клавиатур
-│   │   └── reply.py              # Reply-клавиатуры
-│   ├── services/
-│   │   ├── __init__.py
-│   │   ├── ai_service.py          # Интеграция с OpenRouter API
-│   │   ├── habit_generator.py     # Ленивая генерация задач из привычек
-│   │   ├── reminder_service.py    # Фоновые уведомления по reminder_time
-│   │   └── checkin_service.py     # Check-in по check_interval + last_checkin_at
-
-│   ├── states/
-│   │   ├── __init__.py
-│   │   └── fsm.py                # Состояния FSM (Finite State Machine)
-│   └── utils/
-│       ├── __init__.py
-│       ├── conflict.py            # Проверка конфликтов временных слотов
-│       └── timezone.py            # Shared timezone helpers (reminder/check-in)
-├── tests/
-│   ├── __init__.py
-│   ├── conftest.py                # Фикстуры (in-memory SQLite, mock-сессия)
-│   ├── test_db.py                 # Тесты моделей и CRUD
-│   ├── test_handlers/
-│   │   ├── __init__.py
-│   │   ├── test_ai_assistant.py   # Тесты AI-мастера
-│   │   ├── test_checkin.py        # Тесты check-in handlers
-│   │   ├── test_common_buttons.py # Тесты навигации
-│   │   ├── test_habit_generation.py # Тесты генерации задач
-│   │   ├── test_habits.py         # Тесты привычек
-│   │   ├── test_main_menu.py      # Тесты главного меню
-│   │   ├── test_settings.py       # Тесты настроек
-│   │   ├── test_start.py          # Тесты /start
-│   │   ├── test_statistics.py     # Тесты статистики
-│   │   └── test_tasks.py          # Тесты задач
-│   └── test_services/
-│       ├── __init__.py
-│       ├── test_ai_service.py     # Тесты AI-сервиса
-│       └── test_checkin_service.py # Тесты check-in service
-├── .env.example                   # Пример переменных окружения (dev)
-├── .env.prod.example              # Пример переменных окружения (prod)
-├── .gitignore
-├── alembic.ini                    # Конфигурация Alembic
-├── docker-compose.yml             # Dev-окружение
-├── docker-compose.prod.yml        # Продакшен-окружение
+│   ├── bot.py                    # Bot + Redis FSM + HTML parse_mode
+│   ├── config.py                 # pydantic-settings
+│   ├── main.py                   # Entry: polling + reminder/check-in loop
+│   ├── api/                      # FastAPI stats API (OTT → JWT)
+│   ├── db/                       # SQLAlchemy models + session
+│   ├── handlers/                 # Telegram routers (habits, tasks, AI, settings…)
+│   ├── i18n/                     # RU/EN string catalogs + t()
+│   ├── keyboards/                # Inline / reply keyboards
+│   ├── services/                 # AI, apply, normalize, checkin, stats, dashboard
+│   ├── states/                   # FSM states
+│   └── utils/                    # conflict, time_picker, timezone
+├── web/                          # Vue 3 dashboard (Chart.js)
+├── tests/                        # pytest (handlers, services, api, utils)
+├── pytest.ini
+├── docker-compose.yml            # bot + api + web + postgres + redis
+├── docker-compose.prod.yml
 ├── Dockerfile
-├── requirements.txt               # Продакшен-зависимости
-└── requirements-dev.txt           # Dev-зависимости (тесты, линтеры)
+├── requirements.txt
+└── requirements-dev.txt
 ```
+
 
 ---
 

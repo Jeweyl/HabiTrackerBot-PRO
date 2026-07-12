@@ -6,11 +6,14 @@ Configuration source priority (highest to lowest):
     3. ``.env`` file (if exists)
 """
 
+import logging
 import os
 from pathlib import Path
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 # Detect available env files (for diagnostics + pydantic)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -23,14 +26,17 @@ if _ENV_PROD.exists():
 elif _ENV_LOCAL.exists():
     _env_file = ".env"
 
-# Print diagnostics at import time (names only, no values)
-print("[config] env file detection:")
-print(f"  .env.prod exists: {_ENV_PROD.exists()}")
-print(f"  .env exists:      {_ENV_LOCAL.exists()}")
-print(f"  using env_file:   {_env_file or 'none (process env only)'}")
-print(f"  BOT_TOKEN in env:    {bool(os.getenv('BOT_TOKEN'))}")
-print(f"  DATABASE_URL in env: {bool(os.getenv('DATABASE_URL'))}")
-print(f"  REDIS_URL in env:    {bool(os.getenv('REDIS_URL'))}")
+# Diagnostics at import time (names only, no secret values)
+logger.debug(
+    "env file detection: .env.prod=%s .env=%s using=%s "
+    "BOT_TOKEN_set=%s DATABASE_URL_set=%s REDIS_URL_set=%s",
+    _ENV_PROD.exists(),
+    _ENV_LOCAL.exists(),
+    _env_file or "none (process env only)",
+    bool(os.getenv("BOT_TOKEN")),
+    bool(os.getenv("DATABASE_URL")),
+    bool(os.getenv("REDIS_URL")),
+)
 
 _PLACEHOLDERS = {
     "your_bot_token_here",
