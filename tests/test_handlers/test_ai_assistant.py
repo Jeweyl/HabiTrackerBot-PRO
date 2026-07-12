@@ -367,3 +367,156 @@ async def test_ai_back_from_confirm_to_q2(ai_client: TestClient) -> None:
 
         resp = await ai_client.send_callback("assist:yes")
         assert "Привычка успешно создана" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# A3: AI waiting indicator
+# ---------------------------------------------------------------------------
+
+
+def _captured_texts(client: TestClient) -> list[str]:
+    """Return non-empty texts from the bot session capture buffer."""
+    session = client.bot.session
+    return [m.text for m in session.captured if m.text]
+
+
+@pytest.mark.asyncio
+async def test_ai_waiting_indicator_message_path_success(
+    ai_client: TestClient,
+) -> None:
+    """Message Q2 path: waiting placeholder then SMART plan on success."""
+
+    async def _mock_send_to_ai(*args, **kwargs):
+        return _SAMPLE_AI_RESPONSE
+
+    from src.handlers.ai_assistant import AI_WAITING_TEXT
+
+    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
+        await ai_client.send_callback("new_habit:ai")
+        await ai_client.send_message("читать книги")
+        await ai_client.send_callback("assist:freq:daily")
+
+        # Q2 text answer triggers AI call
+        resp = await ai_client.send_message("Нет времени")
+        texts = _captured_texts(ai_client)
+
+        assert any(AI_WAITING_TEXT in (t or "") for t in texts) or (
+            AI_WAITING_TEXT in (resp.text or "")
+        )
+        assert "SMART-план" in (resp.text or "")
+        assert "Morning run" in (resp.text or "")
+
+
+@pytest.mark.asyncio
+async def test_ai_waiting_indicator_callback_path_success(
+    ai_client: TestClient,
+) -> None:
+    """Callback Q2 path: waiting placeholder then SMART plan on success."""
+
+    async def _mock_send_to_ai(*args, **kwargs):
+        return _SAMPLE_AI_RESPONSE
+
+    from src.handlers.ai_assistant import AI_WAITING_TEXT
+
+    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
+        await ai_client.send_callback("new_habit:ai")
+        await ai_client.send_message("бег")
+        await ai_client.send_callback("assist:intensity:beginner")
+
+        resp = await ai_client.send_callback("assist:duration:30")
+        texts = _captured_texts(ai_client)
+
+        assert any(AI_WAITING_TEXT in (t or "") for t in texts) or (
+            AI_WAITING_TEXT in (resp.text or "")
+        )
+        assert "SMART-план" in (resp.text or "")
+
+
+@pytest.mark.asyncio
+async def test_ai_waiting_indicator_message_path_error(
+    ai_client: TestClient,
+) -> None:
+    """Message Q2 path: waiting then friendly error when AI returns None."""
+
+    async def _mock_send_to_ai(*args, **kwargs):
+        return None
+
+    from src.handlers.ai_assistant import AI_WAITING_TEXT
+
+    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
+        await ai_client.send_callback("new_habit:ai")
+        await ai_client.send_message("читать книги")
+        await ai_client.send_callback("assist:freq:daily")
+
+        resp = await ai_client.send_message("Нет времени")
+        texts = _captured_texts(ai_client)
+
+        assert any(AI_WAITING_TEXT in (t or "") for t in texts) or (
+            AI_WAITING_TEXT in (resp.text or "")
+        )
+        assert "ИИ временно недоступен" in (resp.text or "")
+
+
+@pytest.mark.asyncio
+async def test_ai_waiting_indicator_callback_path_error(
+    ai_client: TestClient,
+) -> None:
+    """Callback Q2 path: waiting then friendly error when AI returns None."""
+
+    async def _mock_send_to_ai(*args, **kwargs):
+        return None
+
+    from src.handlers.ai_assistant import AI_WAITING_TEXT
+
+    with patch("src.handlers.ai_assistant.send_to_ai", _mock_send_to_ai):
+        await ai_client.send_callback("new_habit:ai")
+        await ai_client.send_message("бег")
+        await ai_client.send_callback("assist:skip")
+
+        resp = await ai_client.send_callback("assist:skip")
+        texts = _captured_texts(ai_client)
+
+        assert any(AI_WAITING_TEXT in (t or "") for t in texts) or (
+            AI_WAITING_TEXT in (resp.text or "")
+        )
+        assert "ИИ временно недоступен" in (resp.text or "")
+
+
+@pytest.mark.asyncio
+async def test_deliver_ai_result_edit_failure_sends_new(
+    ai_client: TestClient,
+) -> None:
+    """If placeholder edit fails, send a new message (no traceback)."""
+    from unittest.mock import AsyncMock
+
+    from aiogram.types import Chat, Message
+    from src.handlers.ai_assistant import _deliver_ai_result
+
+    bot = ai_client.bot
+    chat = Chat(id=123456, type="private")
+    placeholder = Message(message_id=99, date=0, chat=chat, text="waiting")
+
+    # Force edit to fail, send_message to succeed
+    bot.edit_message_text = AsyncMock(side_effect=RuntimeError("edit failed"))
+    sent = Message(message_id=100, date=0, chat=chat, text="final")
+    bot.send_message = AsyncMock(return_value=sent)
+    bot.delete_message = AsyncMock(return_value=True)
+
+    user_msg = Message(
+        message_id=1,
+        date=0,
+        chat=chat,
+        text="q2",
+    ).as_(bot)
+
+    await _deliver_ai_result(
+        placeholder,
+        user_msg,
+        "final result text",
+        reply_markup=None,
+        parse_mode=None,
+    )
+
+    bot.edit_message_text.assert_awaited()
+    bot.send_message.assert_awaited()
+    bot.delete_message.assert_awaited_once()

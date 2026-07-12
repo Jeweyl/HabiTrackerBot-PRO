@@ -27,6 +27,11 @@ logger = logging.getLogger(__name__)
 router = Router()
 """Router for AI assistant wizard handlers."""
 
+AI_WAITING_TEXT = (
+    "⏳ Генерирую SMART-план… Это может занять до 30 секунд."
+)
+"""Placeholder shown while waiting for the OpenRouter response."""
+
 # ---------------------------------------------------------------------------
 # Keyword matching for adaptive questions
 # ---------------------------------------------------------------------------
@@ -147,11 +152,79 @@ async def _return_to_main_menu(
 # ---------------------------------------------------------------------------
 
 
+def _event_bot_chat(event: Message | CallbackQuery):
+    """Return ``(bot, chat_id)`` for a Message or CallbackQuery event."""
+    if isinstance(event, CallbackQuery):
+        return event.bot, event.message.chat.id
+    return event.bot, event.chat.id
+
+
+async def _deliver_ai_result(
+    placeholder: Message | None,
+    event: Message | CallbackQuery,
+    text: str,
+    reply_markup=None,
+    parse_mode: str | None = None,
+) -> None:
+    """Edit the waiting placeholder to the final text, with send+delete fallback.
+
+    Prefer editing ``placeholder``. If edit is impossible, send a new message
+    and best-effort delete the placeholder so the chat is not left with a
+    stale waiting indicator.
+
+    Args:
+        placeholder: Message previously shown as the waiting indicator.
+        event: Original Message or CallbackQuery (used for bot/chat fallback).
+        text: Final message body.
+        reply_markup: Optional inline keyboard.
+        parse_mode: Optional parse mode for the final message.
+    """
+    bot, chat_id = _event_bot_chat(event)
+
+    if placeholder is not None:
+        try:
+            await bot.edit_message_text(
+                text=text,
+                chat_id=placeholder.chat.id,
+                message_id=placeholder.message_id,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+            return
+        except Exception:
+            logger.warning(
+                "Could not edit AI waiting placeholder; sending a new message",
+                exc_info=True,
+            )
+
+    await bot.send_message(
+        chat_id,
+        text,
+        reply_markup=reply_markup,
+        parse_mode=parse_mode,
+    )
+
+    if placeholder is not None:
+        try:
+            await bot.delete_message(
+                chat_id=placeholder.chat.id,
+                message_id=placeholder.message_id,
+            )
+        except Exception:
+            logger.debug(
+                "Could not delete AI waiting placeholder after fallback send",
+                exc_info=True,
+            )
+
+
 async def _call_ai_and_transition(
     event: Message | CallbackQuery,
     state: FSMContext,
 ) -> None:
     """Build the prompt from FSM data, call send_to_ai, and transition.
+
+    Shows a waiting placeholder before the AI call, then replaces it with the
+    SMART plan or a friendly error + fallback keyboard.
 
     On success: store AI response in FSM data and go to confirm_recommendations.
     On failure: show friendly error message with fallback to manual creation.
@@ -165,22 +238,50 @@ async def _call_ai_and_transition(
     answers = data.get("answers", {})
 
     prompt = build_prompt(habit_title, answers)
+
+    # Show waiting indicator before the (potentially slow) AI call.
+    placeholder: Message | None = None
+    if isinstance(event, CallbackQuery):
+        try:
+            await event.answer()
+        except Exception:
+            # Caller may already have answered the callback; ignore.
+            pass
+        try:
+            placeholder = await event.message.edit_text(AI_WAITING_TEXT)
+        except Exception:
+            logger.warning(
+                "Could not edit message to AI waiting text; sending new",
+                exc_info=True,
+            )
+            try:
+                placeholder = await event.message.answer(AI_WAITING_TEXT)
+            except Exception:
+                logger.warning(
+                    "Could not send AI waiting placeholder",
+                    exc_info=True,
+                )
+                placeholder = None
+    else:
+        try:
+            placeholder = await event.answer(AI_WAITING_TEXT)
+        except Exception:
+            logger.warning(
+                "Could not send AI waiting placeholder",
+                exc_info=True,
+            )
+            placeholder = None
+
     ai_response = await send_to_ai(prompt)
 
     if ai_response is None:
-        if isinstance(event, CallbackQuery):
-            await event.answer()
-            await event.message.edit_text(
-                "🤖 ИИ временно недоступен. "
-                "Попробуйте позже или создайте привычку вручную.",
-                reply_markup=get_ai_fallback_keyboard(),
-            )
-        else:
-            await event.answer(
-                "🤖 ИИ временно недоступен. "
-                "Попробуйте позже или создайте привычку вручную.",
-                reply_markup=get_ai_fallback_keyboard(),
-            )
+        await _deliver_ai_result(
+            placeholder,
+            event,
+            "🤖 ИИ временно недоступен. "
+            "Попробуйте позже или создайте привычку вручную.",
+            reply_markup=get_ai_fallback_keyboard(),
+        )
         return
 
     await state.update_data(ai_response=ai_response)
@@ -203,19 +304,13 @@ async def _call_ai_and_transition(
         "Создать привычку на основе этих рекомендаций?"
     )
 
-    if isinstance(event, CallbackQuery):
-        await event.answer()
-        await event.message.edit_text(
-            message_text,
-            reply_markup=get_ai_assistant_confirm_keyboard(),
-            parse_mode="Markdown",
-        )
-    else:
-        await event.answer(
-            message_text,
-            reply_markup=get_ai_assistant_confirm_keyboard(),
-            parse_mode="Markdown",
-        )
+    await _deliver_ai_result(
+        placeholder,
+        event,
+        message_text,
+        reply_markup=get_ai_assistant_confirm_keyboard(),
+        parse_mode="Markdown",
+    )
 
 
 # ---------------------------------------------------------------------------
