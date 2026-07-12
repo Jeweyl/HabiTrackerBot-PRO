@@ -1,12 +1,14 @@
 <template>
   <div>
     <div v-if="!items.length" class="empty-state">
-      <p class="muted" style="margin: 0">No habits yet. Create one in the bot.</p>
+      <p class="muted" style="margin: 0">{{ t("habits.empty", lang) }}</p>
     </div>
     <ul v-else class="habit-list">
       <li v-for="item in items" :key="item.habit_id" class="habit-row">
         <div class="habit-head">
-          <span class="habit-title">{{ item.title || "Untitled" }}</span>
+          <span class="habit-title">{{
+            item.title || t("schedule.untitled", lang)
+          }}</span>
           <span class="muted">
             {{ item.completed }}/{{ item.total }} · {{ item.completion_rate }}%
           </span>
@@ -24,10 +26,17 @@
 
 <script setup lang="ts">
 import type { HabitBreakdownItem } from "@/api/stats"
+import { t, type Lang } from "@/i18n"
 
-defineProps<{
-  items: HabitBreakdownItem[]
-}>()
+withDefaults(
+  defineProps<{
+    items: HabitBreakdownItem[]
+    lang?: Lang
+  }>(),
+  {
+    lang: "ru",
+  },
+)
 
 function barWidth(rate: number): string {
   const n = Number.isFinite(rate) ? Math.max(0, Math.min(100, rate)) : 0

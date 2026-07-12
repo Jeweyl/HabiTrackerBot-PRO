@@ -33,8 +33,10 @@ class OverviewResponse(BaseModel):
     completion_rate: float
     streak: int
     habits_count: int
+    language: str = "ru"
 
     model_config = {"populate_by_name": True}
+
 
 
 class DailyPointResponse(BaseModel):

@@ -62,6 +62,11 @@ async def issue_dashboard_link(
         base_url if base_url is not None else settings.DASHBOARD_PUBLIC_URL
     )
     if base is None:
+        logger.info(
+            "Dashboard link skipped: DASHBOARD_PUBLIC_URL is empty/unset "
+            "(user_id=%s)",
+            user_id,
+        )
         return None
 
     if user_id is None:

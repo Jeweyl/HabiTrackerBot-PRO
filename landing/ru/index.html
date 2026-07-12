@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HabiTracker — AI-ассистент привычек в Telegram</title>
+    <meta
+      name="description"
+      content="Привычки в Telegram: умное расписание, проверка конфликтов, check-in, AI-формулировка целей и Vue-дашборд. Базовый функционал бесплатно, премиум — за поинты."
+    />
+    <meta name="theme-color" content="#0b0f14" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container nav">
+        <a class="brand" href="#top">
+          <span class="brand-mark" aria-hidden="true">✓</span>
+          <span>HabiTracker</span>
+        </a>
+        <nav class="nav-links" aria-label="Основная навигация">
+          <a class="nav-text" href="#features">Возможности</a>
+          <a class="nav-text" href="#demo">Демо</a>
+          <a class="nav-text" href="#freemium">Тарифы</a>
+          <a class="nav-text" href="#business">Бизнесу</a>
+          <a class="lang-switch" href="https://jeweyl.github.io/HabiTrackerBot/" title="English version">EN</a>
+          <a class="btn btn-primary" href="https://t.me/HabiTrakerBot" rel="noopener" target="_blank"
+            >Открыть бота</a
+          >
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="container hero-grid">
+          <div>
+            <div class="eyebrow">Telegram-first · Freemium</div>
+            <h1>Привычки на системе — а не только на силе воли</h1>
+            <p class="hero-lead">
+              HabiTracker превращает цели в живое расписание прямо в Telegram: шаблоны генерируют
+              задачи, конфликты ловятся заранее, check-in не спамит, а AI помогает сформулировать
+              цели, которые реально удержать. Базовый трекинг бесплатный; AI и web-дашборд — за
+              поинты.
+            </p>
+            <div class="hero-cta">
+              <a
+                class="btn btn-primary btn-lg"
+                href="https://t.me/HabiTrakerBot"
+                rel="noopener"
+                target="_blank"
+                >Открыть в Telegram</a
+              >
+              <a class="btn btn-ghost btn-lg" href="#demo">Как это выглядит</a>
+            </div>
+            <p class="hero-meta">
+              Живое демо · Канал
+              <a href="https://t.me/HabiTraker" rel="noopener" target="_blank">@HabiTraker</a>
+              · Исходники продукта закрыты
+            </p>
+          </div>
+          <aside class="hero-card" aria-label="Ключевые пункты">
+            <h3>Зачем пробуют</h3>
+            <ul class="checklist">
+              <li>Привычки с учётом расписания — не просто чекбоксы</li>
+              <li>AI multi-turn → SMART-план на сетке 15 минут</li>
+              <li>Check-in с anti-spam интервалом</li>
+              <li>Vue-дашборд: графики, breakdown, расписание</li>
+              <li>RU/EN в боте · EN — основной рынок монетизации</li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+
+      <section id="problem">
+        <div class="container">
+          <div class="section-head">
+            <h2>Большинство трекеров ломаются одинаково</h2>
+            <p>
+              Либо слишком примитивные, чтобы менять поведение, либо настолько тяжёлые, что через
+              неделю их бросают. HabiTracker живёт в Telegram и держит фокус на целостности
+              расписания.
+            </p>
+          </div>
+          <div class="grid-3">
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">📭</div>
+              <h3>Пустые чекбоксы</h3>
+              <p>Стрик-приложения не спасают от двойной записи вечера и размытых целей.</p>
+            </article>
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">🧱</div>
+              <h3>Перегруженные комбайны</h3>
+              <p>All-in-one «продуктивность» хоронит привычки под проектами и шумом.</p>
+            </article>
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">🔕</div>
+              <h3>Спам-напоминания</h3>
+              <p>Пинги без контекста приучают игнорировать вообще все уведомления.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="features">
+        <div class="container">
+          <div class="section-head">
+            <h2>Продукт, а не учебный бот</h2>
+            <p>
+              Конфликты слотов, FSM-мастера, AI со строгим JSON-контрактом и read-only аналитика в
+              вебе — заточено под ежедневное использование.
+            </p>
+          </div>
+          <div class="grid-2">
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">📋</div>
+              <h3>Привычки и задачи</h3>
+              <p>
+                Шаблоны ежедневно / будни / выходные, ленивая генерация дня, правки с сохранением
+                длительности и разовые задачи на один слот.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">🤖</div>
+              <h3>AI-ассистент</h3>
+              <p>
+                Уточняющие вопросы, SMART-предложения, привязка к сетке 15 минут и проверка
+                конфликтов до записи в календарь.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">⏰</div>
+              <h3>Check-in и конфликты</h3>
+              <p>
+                «Выполнили …?» после start time с вашим интервалом. Пересечения ловятся и для задач,
+                и для повторяющихся привычек.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">📊</div>
+              <h3>Дашборд</h3>
+              <p>
+                Графики и расписание из бота по one-time ссылке: динамика выполнения, разбивка по
+                привычкам, read-only день.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="demo">
+        <div class="container">
+          <div class="section-head">
+            <h2>Как это выглядит</h2>
+            <p>
+              Положите записи в <code>media/</code>. Пока файлов нет — плейсхолдеры для GitHub Pages
+              и показов заказчикам.
+            </p>
+          </div>
+          <div class="grid-3">
+            <div>
+              <div class="demo-label">Привычка</div>
+              <div class="demo-frame">
+                <img
+                  src="media/demo-habit.gif"
+                  alt="Демо: создание и выполнение привычки"
+                  onerror="this.style.display='none'; this.parentElement.querySelector('.hint').hidden=false;"
+                />
+                <p class="hint" hidden>
+                  Добавьте <strong>media/demo-habit.gif</strong> — создание → выполнение → серия
+                </p>
+              </div>
+            </div>
+            <div>
+              <div class="demo-label">AI-коуч</div>
+              <div class="demo-frame">
+                <img
+                  src="media/demo-ai.gif"
+                  alt="Демо: AI-ассистент привычек"
+                  onerror="this.style.display='none'; this.parentElement.querySelector('.hint').hidden=false;"
+                />
+                <p class="hint" hidden>
+                  Добавьте <strong>media/demo-ai.gif</strong> — «хочу…» → SMART-план
+                </p>
+              </div>
+            </div>
+            <div>
+              <div class="demo-label">Дашборд</div>
+              <div class="demo-frame">
+                <img
+                  src="media/demo-dashboard.png"
+                  alt="Демо: аналитический дашборд"
+                  onerror="this.style.display='none'; this.parentElement.querySelector('.hint').hidden=false;"
+                />
+                <p class="hint" hidden>
+                  Добавьте <strong>media/demo-dashboard.png</strong> — графики и расписание
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="how">
+        <div class="container">
+          <div class="section-head">
+            <h2>Как начать</h2>
+            <p>От первого сообщения до недели данных — три шага.</p>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <div class="step-num">1</div>
+              <div>
+                <h3>Запустите бота</h3>
+                <p>
+                  Откройте
+                  <a href="https://t.me/HabiTrakerBot" rel="noopener" target="_blank"
+                    >@HabiTrakerBot</a
+                  >
+                  и отправьте <code>/start</code>. Язык и часовой пояс — когда удобно.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">2</div>
+              <div>
+                <h3>Соберите расписание</h3>
+                <p>
+                  Добавьте привычки вручную или с AI. Задачи появятся в календаре; конфликты — до
+                  подтверждения.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">3</div>
+              <div>
+                <h3>Отмечайте и смотрите прогресс</h3>
+                <p>
+                  Закрывайте пункты в чате, отвечайте на check-in, открывайте дашборд за графиками —
+                  премиум-функции списывают поинты.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="freemium">
+        <div class="container">
+          <div class="section-head">
+            <h2>База бесплатно. Поинты — за силу.</h2>
+            <p>
+              Полноценный трекинг привычек без оплаты. AI и web-дашборд тратят недельный запас
+              поинтов — или Pro, когда подключим.
+            </p>
+          </div>
+          <div class="price-grid">
+            <article class="price-card">
+              <h3>Core</h3>
+              <p class="price-note">Бесплатно навсегда в публичном боте</p>
+              <ul>
+                <li>Привычки и разовые задачи</li>
+                <li>Календарь и отметки выполнения</li>
+                <li>Проверка конфликтов</li>
+                <li>Check-in уведомления</li>
+                <li>Базовая статистика в Telegram</li>
+                <li>Настройки RU / EN</li>
+              </ul>
+            </article>
+            <article class="price-card featured">
+              <span class="tag">Premium</span>
+              <h3>Поинты и Pro</h3>
+              <p class="price-note">Недельный grant · пакеты · Pro в планах</p>
+              <ul>
+                <li>AI-мастер привычек (multi-turn)</li>
+                <li>AI для разовой задачи</li>
+                <li>Vue-дашборд и графики</li>
+                <li>Мягкий paywall — core не блокируется</li>
+                <li>Пакеты Telegram Stars (по мере запуска)</li>
+                <li>Pro: безлимит премиума на срок подписки</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="business">
+        <div class="container">
+          <div class="banner">
+            <div>
+              <h2>Заказчикам и партнёрам</h2>
+              <p>
+                Нужен показ стейкхолдерам, пилот или разговор про white-label? Живой бот и эта
+                страница — демо-кит. Исходники остаются private и лицензируются отдельно.
+              </p>
+            </div>
+            <div class="hero-cta">
+              <a
+                class="btn btn-primary"
+                href="https://t.me/HabiTrakerBot"
+                rel="noopener"
+                target="_blank"
+                >Попробовать демо-бота</a
+              >
+              <a class="btn btn-ghost" href="https://t.me/Jeweyl" rel="noopener" target="_blank"
+                >Написать @Jeweyl</a
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-grid">
+        <div>
+          <strong style="color: var(--text)">HabiTracker</strong>
+          <div>Ассистент привычек в Telegram · freemium</div>
+        </div>
+        <div class="footer-links">
+          <a href="https://t.me/HabiTrakerBot" rel="noopener" target="_blank">Бот</a>
+          <a href="https://t.me/HabiTraker" rel="noopener" target="_blank">Канал</a>
+          <a href="https://jeweyl.github.io/HabiTrackerBot/">English</a>
+          <a href="https://t.me/Jeweyl" rel="noopener" target="_blank">Контакт</a>
+        </div>
+      </div>
+      <div class="container legal">
+        © 2026 HabiTracker. Copyright (c) 2026 Jeweyl. All rights reserved. Эта страница — публичное
+        демо и медиа-кит, без исходного кода продукта. Несанкционированное использование ПО
+        запрещено.
+      </div>
+    </footer>
+  </body>
+</html>

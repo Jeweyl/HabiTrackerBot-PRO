@@ -30,6 +30,44 @@ STRINGS: dict[str, str] = {
     "main.help": "❓ Help",
     "stats.open_dashboard": "📊 Open dashboard",
     "stats.back": "⬅️ Back",
+    "stats.btn_7d": "7d",
+    "stats.btn_7d_active": "• 7d",
+    "stats.btn_30d": "30d",
+    "stats.btn_30d_active": "• 30d",
+    "stats.btn_habits": "📋 Habits",
+    "stats.btn_daily": "📅 By day",
+    "stats.btn_overview": "📊 Overview",
+    "stats.refresh_link": "🔄 Dashboard link",
+    "stats.title": "📊 <b>Your stats for the last {days} days:</b>",
+    "stats.title_empty": "📊 <b>Statistics</b>",
+    "stats.empty_all": (
+        "You have no tasks or habits yet.\n"
+        "Create your first habit or task to start tracking progress! 🚀"
+    ),
+    "stats.empty_tasks": (
+        "No tasks in this period. Add tasks to see your progress!"
+    ),
+    "stats.completed_line": "✅ Completed: {completed} of {total} tasks ({rate}%)",
+    "stats.missed_line": "📅 Missed: {missed} tasks",
+    "stats.habits_line": "📋 Habits: {count}",
+    "stats.streak_line": "🔥 Current streak: {streak} day(s) in a row",
+    "stats.streak_zero": "🔥 Current streak: 0 days",
+    "stats.keep_going": "Keep it up! 💪",
+    "stats.dashboard_unavailable": (
+        "\n\n⚠️ Web dashboard is unavailable "
+        "(URL not configured or temporary error)."
+    ),
+    "stats.habits_title": "📋 <b>Habits — last {days} days</b>",
+    "stats.habits_empty": "No habits yet. Create one in the bot.",
+    "stats.habit_line": "• <b>{title}</b> — {completed}/{total} ({rate}%)",
+    "stats.daily_title": "📅 <b>By day — last {days} days</b>",
+    "stats.daily_line": "{date}: ✅{completed} ❌{missed}",
+    "stats.daily_empty_day": "{date}: —",
+    "stats.link_issued": "✅ Dashboard link refreshed. Tap the button below.",
+    "stats.link_failed": (
+        "⚠️ Could not create a dashboard link. "
+        "Check DASHBOARD_PUBLIC_URL and Redis."
+    ),
     "main.under_development": "Feature '{label}' is under development. Stay tuned!",
     "main.new_habit_choice": "Choose how to create a habit:",
     # --- help ---

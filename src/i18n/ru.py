@@ -30,6 +30,46 @@ STRINGS: dict[str, str] = {
     "main.help": "❓ Помощь",
     "stats.open_dashboard": "📊 Открыть дашборд",
     "stats.back": "⬅️ Назад",
+    "stats.btn_7d": "7д",
+    "stats.btn_7d_active": "• 7д",
+    "stats.btn_30d": "30д",
+    "stats.btn_30d_active": "• 30д",
+    "stats.btn_habits": "📋 Привычки",
+    "stats.btn_daily": "📅 По дням",
+    "stats.btn_overview": "📊 Сводка",
+    "stats.refresh_link": "🔄 Ссылка на дашборд",
+    "stats.title": "📊 <b>Ваша статистика за последние {days} дн.:</b>",
+    "stats.title_empty": "📊 <b>Статистика</b>",
+    "stats.empty_all": (
+        "У вас пока нет задач и привычек.\n"
+        "Создайте первую привычку или задачу, "
+        "чтобы начать отслеживать прогресс! 🚀"
+    ),
+    "stats.empty_tasks": (
+        "Задач за этот период нет. Добавьте задачи, "
+        "чтобы увидеть прогресс!"
+    ),
+    "stats.completed_line": "✅ Выполнено: {completed} из {total} задач ({rate}%)",
+    "stats.missed_line": "📅 Пропущено: {missed} задач",
+    "stats.habits_line": "📋 Всего привычек: {count}",
+    "stats.streak_line": "🔥 Текущая серия: {streak} дн. подряд",
+    "stats.streak_zero": "🔥 Текущая серия: 0 дн.",
+    "stats.keep_going": "Продолжайте в том же духе! 💪",
+    "stats.dashboard_unavailable": (
+        "\n\n⚠️ Веб-дашборд сейчас недоступен "
+        "(не настроен URL или временная ошибка)."
+    ),
+    "stats.habits_title": "📋 <b>Привычки за {days} дн.</b>",
+    "stats.habits_empty": "Привычек пока нет. Создайте первую в боте.",
+    "stats.habit_line": "• <b>{title}</b> — {completed}/{total} ({rate}%)",
+    "stats.daily_title": "📅 <b>По дням за {days} дн.</b>",
+    "stats.daily_line": "{date}: ✅{completed} ❌{missed}",
+    "stats.daily_empty_day": "{date}: —",
+    "stats.link_issued": "✅ Ссылка на дашборд обновлена. Нажмите кнопку ниже.",
+    "stats.link_failed": (
+        "⚠️ Не удалось создать ссылку на дашборд. "
+        "Проверьте, что DASHBOARD_PUBLIC_URL задан и Redis доступен."
+    ),
     "main.under_development": "Функция '{label}' находится в разработке. Следите за обновлениями!",
     "main.new_habit_choice": "Выберите способ создания привычки:",
     # --- help ---

@@ -10,6 +10,7 @@ export type OverviewResponse = {
   completion_rate: number
   streak: number
   habits_count: number
+  language?: string
 }
 
 export type DailyPoint = {

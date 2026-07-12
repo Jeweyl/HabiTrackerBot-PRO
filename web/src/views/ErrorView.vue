@@ -4,17 +4,19 @@
       <h1 class="error-title" style="margin-top: 0">{{ title }}</h1>
       <p class="muted">{{ message }}</p>
       <p class="muted" style="font-size: 0.9rem">
-        Open the bot → Statistics → «Open dashboard» for a new link.
+        {{ t("error.hint", lang) }}
       </p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, ref } from "vue"
 import { useRoute } from "vue-router"
+import { resolveLang, t, type Lang } from "@/i18n"
 
 const route = useRoute()
+const lang = ref<Lang>(resolveLang())
 
 const reason = computed(() => {
   const raw = route.query.reason
@@ -25,30 +27,30 @@ const reason = computed(() => {
 const title = computed(() => {
   switch (reason.value) {
     case "missing_token":
-      return "Link incomplete"
+      return t("error.missing_token.title", lang.value)
     case "invalid_token":
-      return "Link invalid or expired"
+      return t("error.invalid_token.title", lang.value)
     case "not_authenticated":
-      return "Session required"
+      return t("error.not_authenticated.title", lang.value)
     case "exchange_failed":
-      return "Could not sign in"
+      return t("error.exchange_failed.title", lang.value)
     default:
-      return "Something went wrong"
+      return t("error.unknown.title", lang.value)
   }
 })
 
 const message = computed(() => {
   switch (reason.value) {
     case "missing_token":
-      return "This page needs a one-time token from the Telegram bot."
+      return t("error.missing_token.body", lang.value)
     case "invalid_token":
-      return "The one-time link was already used, expired, or is invalid."
+      return t("error.invalid_token.body", lang.value)
     case "not_authenticated":
-      return "Open a fresh dashboard link from the bot to continue."
+      return t("error.not_authenticated.body", lang.value)
     case "exchange_failed":
-      return "The server could not exchange your token. Try again later."
+      return t("error.exchange_failed.body", lang.value)
     default:
-      return "Please request a new dashboard link from the bot."
+      return t("error.unknown.body", lang.value)
   }
 })
 </script>

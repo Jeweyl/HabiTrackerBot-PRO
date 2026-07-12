@@ -2,24 +2,28 @@
   <div class="page center">
     <div class="card" style="max-width: 420px; width: 100%">
       <div class="spinner" aria-hidden="true" />
-      <h1 style="margin: 0 0 0.5rem; font-size: 1.25rem">Signing in…</h1>
+      <h1 style="margin: 0 0 0.5rem; font-size: 1.25rem">
+        {{ t("login.title", lang) }}
+      </h1>
       <p class="muted" style="margin: 0">
-        Exchanging your one-time link for a secure session.
+        {{ t("login.body", lang) }}
       </p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from "vue"
+import { onMounted, onUnmounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { exchangeToken } from "@/api/auth"
 import { ApiError } from "@/api/client"
 import { setAccessToken } from "@/auth/session"
+import { resolveLang, t, type Lang } from "@/i18n"
 
 const route = useRoute()
 const router = useRouter()
 const controller = new AbortController()
+const lang = ref<Lang>(resolveLang())
 
 onMounted(async () => {
   const raw = route.query.token

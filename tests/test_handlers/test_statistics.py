@@ -375,6 +375,16 @@ class TestStatisticsDashboardButton:
             if getattr(btn, "url", None)
         ]
         assert dash_url in urls
+        callbacks = [
+            btn.callback_data
+            for row in markup.inline_keyboard
+            for btn in row
+            if getattr(btn, "callback_data", None)
+        ]
+        assert "stats:period:7" in callbacks
+        assert "stats:period:30" in callbacks
+        assert "stats:habits:7" in callbacks
+        assert "stats:daily:7" in callbacks
 
     @pytest.mark.asyncio
     async def test_no_dashboard_button_when_link_none(
@@ -382,7 +392,7 @@ class TestStatisticsDashboardButton:
         full_client: "TestClient",
         async_session: AsyncSession,
     ) -> None:
-        """Empty DASHBOARD_PUBLIC_URL → no url button (only back)."""
+        """Empty DASHBOARD_PUBLIC_URL → refresh-link callback, no url button."""
         await _create_user(async_session)
 
         with (
@@ -411,7 +421,6 @@ class TestStatisticsDashboardButton:
             if getattr(btn, "url", None)
         ]
         assert urls == []
-        # Back button still present
         callbacks = [
             btn.callback_data
             for row in markup.inline_keyboard
@@ -419,3 +428,130 @@ class TestStatisticsDashboardButton:
             if getattr(btn, "callback_data", None)
         ]
         assert "nav:cancel" in callbacks
+        assert "stats:refresh_link:7" in callbacks
+        assert "дашборд" in resp.text.lower() or "dashboard" in resp.text.lower()
+
+
+class TestStatisticsInteractive:
+    """Period switch, habits and daily mini views."""
+
+    @pytest.mark.asyncio
+    async def test_period_30_days(
+        self,
+        full_client: "TestClient",
+        async_session: AsyncSession,
+    ) -> None:
+        """stats:period:30 re-renders overview for 30 days."""
+        user = await _create_user(async_session)
+        today = date.today()
+        await _create_task(async_session, user, "Old", today - timedelta(days=20), is_completed=True)
+        await _create_task(async_session, user, "New", today, is_completed=True)
+
+        with (
+            patch(
+                "src.handlers.statistics.get_db",
+                _mock_get_db_context(async_session),
+            ),
+            patch(
+                "src.handlers.statistics.issue_dashboard_link",
+                return_value=None,
+            ),
+            patch("src.handlers.statistics.RedisTokenStore"),
+        ):
+            resp: Message = await full_client.send_callback(
+                "stats:period:30",
+                user_id=123456,
+                message_text="stats",
+            )
+
+        assert "30" in resp.text
+        assert "2 из 2" in resp.text
+        callbacks = [
+            btn.callback_data
+            for row in resp.reply_markup.inline_keyboard
+            for btn in row
+            if getattr(btn, "callback_data", None)
+        ]
+        assert "stats:habits:30" in callbacks
+        assert "stats:daily:30" in callbacks
+
+    @pytest.mark.asyncio
+    async def test_habits_view(
+        self,
+        full_client: "TestClient",
+        async_session: AsyncSession,
+    ) -> None:
+        """stats:habits:7 shows per-habit breakdown."""
+        user = await _create_user(async_session)
+        habit = await _create_habit(async_session, user, "Утро")
+        await _create_task(
+            async_session,
+            user,
+            "Утро",
+            date.today(),
+            is_completed=True,
+            habit_id=habit.id,
+        )
+
+        with (
+            patch(
+                "src.handlers.statistics.get_db",
+                _mock_get_db_context(async_session),
+            ),
+            patch(
+                "src.handlers.statistics.issue_dashboard_link",
+                return_value=None,
+            ),
+            patch("src.handlers.statistics.RedisTokenStore"),
+        ):
+            resp: Message = await full_client.send_callback(
+                "stats:habits:7",
+                user_id=123456,
+                message_text="stats",
+            )
+
+        assert "Утро" in resp.text
+        assert "1/1" in resp.text
+        callbacks = [
+            btn.callback_data
+            for row in resp.reply_markup.inline_keyboard
+            for btn in row
+            if getattr(btn, "callback_data", None)
+        ]
+        assert "stats:overview:7" in callbacks
+
+    @pytest.mark.asyncio
+    async def test_daily_view(
+        self,
+        full_client: "TestClient",
+        async_session: AsyncSession,
+    ) -> None:
+        """stats:daily:7 shows compact per-day lines."""
+        user = await _create_user(async_session)
+        today = date.today()
+        await _create_task(async_session, user, "T1", today, is_completed=True)
+        await _create_task(async_session, user, "T2", today, is_completed=False)
+
+        with (
+            patch(
+                "src.handlers.statistics.get_db",
+                _mock_get_db_context(async_session),
+            ),
+            patch(
+                "src.handlers.statistics.issue_dashboard_link",
+                return_value=None,
+            ),
+            patch("src.handlers.statistics.RedisTokenStore"),
+        ):
+            resp: Message = await full_client.send_callback(
+                "stats:daily:7",
+                user_id=123456,
+                message_text="stats",
+            )
+
+        label = today.strftime("%m-%d")
+        assert label in resp.text
+        assert "✅1" in resp.text
+        assert "❌1" in resp.text
+
+

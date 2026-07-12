@@ -2,7 +2,7 @@
   <div class="chart-wrap">
     <div v-if="!hasData" class="empty-state">
       <p class="muted" style="margin: 0">
-        No completion data for this period yet.
+        {{ t("chart.empty", lang) }}
       </p>
     </div>
     <Bar v-else :data="chartData" :options="chartOptions" />
@@ -22,13 +22,20 @@ import {
 } from "chart.js"
 import { Bar } from "vue-chartjs"
 import type { DailyPoint } from "@/api/stats"
+import { t, type Lang } from "@/i18n"
 import { formatShortDate } from "@/utils/dates"
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
-const props = defineProps<{
-  series: DailyPoint[]
-}>()
+const props = withDefaults(
+  defineProps<{
+    series: DailyPoint[]
+    lang?: Lang
+  }>(),
+  {
+    lang: "ru",
+  },
+)
 
 const hasData = computed(() => {
   if (!props.series?.length) {
@@ -43,13 +50,13 @@ const chartData = computed(() => {
     labels: series.map((p) => formatShortDate(p.date)),
     datasets: [
       {
-        label: "Completed",
+        label: t("chart.completed", props.lang),
         backgroundColor: "rgba(127, 217, 154, 0.85)",
         borderRadius: 4,
         data: series.map((p) => p.completed ?? 0),
       },
       {
-        label: "Missed",
+        label: t("chart.missed", props.lang),
         backgroundColor: "rgba(240, 113, 120, 0.75)",
         borderRadius: 4,
         data: series.map((p) => p.missed ?? 0),
@@ -90,7 +97,6 @@ const chartOptions = {
   height: 240px;
   position: relative;
 }
-
 
 .empty-state {
   min-height: 180px;

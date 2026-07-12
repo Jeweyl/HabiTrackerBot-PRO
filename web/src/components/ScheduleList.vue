@@ -2,7 +2,7 @@
   <div>
     <div v-if="!items.length" class="empty-state">
       <p class="muted" style="margin: 0">
-        No tasks in this range. Your schedule will show up here.
+        {{ t("schedule.empty", lang) }}
       </p>
     </div>
     <div v-else class="days">
@@ -19,9 +19,15 @@
               {{ task.start_time
               }}<template v-if="task.end_time">–{{ task.end_time }}</template>
             </span>
-            <span class="title">{{ task.title || "Untitled" }}</span>
+            <span class="title">{{
+              task.title || t("schedule.untitled", lang)
+            }}</span>
             <span class="badge" :class="task.is_completed ? 'ok' : 'pending'">
-              {{ task.is_completed ? "done" : "open" }}
+              {{
+                task.is_completed
+                  ? t("schedule.done", lang)
+                  : t("schedule.open", lang)
+              }}
             </span>
           </li>
         </ul>
@@ -33,10 +39,17 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import type { ScheduleItem } from "@/api/stats"
+import { t, type Lang } from "@/i18n"
 
-const props = defineProps<{
-  items: ScheduleItem[]
-}>()
+const props = withDefaults(
+  defineProps<{
+    items: ScheduleItem[]
+    lang?: Lang
+  }>(),
+  {
+    lang: "ru",
+  },
+)
 
 type DayGroup = { date: string; tasks: ScheduleItem[] }
 

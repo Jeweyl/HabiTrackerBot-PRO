@@ -2,9 +2,9 @@
   <div class="page">
     <header class="header">
       <div>
-        <h1>HabiTracker Dashboard</h1>
+        <h1>{{ t("dash.title", lang) }}</h1>
         <p class="muted" style="margin: 0.25rem 0 0">
-          Read-only stats · last {{ days }} days
+          {{ t("dash.subtitle", lang, { days }) }}
         </p>
       </div>
       <div class="header-actions">
@@ -26,79 +26,85 @@
             30d
           </button>
         </div>
+        <button type="button" class="btn" @click="loadAll" :disabled="loading">
+          {{ t("dash.refresh", lang) }}
+        </button>
         <button type="button" class="btn btn-ghost" @click="logout">
-          Log out
+          {{ t("dash.logout", lang) }}
         </button>
       </div>
     </header>
 
     <div v-if="loading" class="card center" style="min-height: 200px">
       <div class="spinner" />
-      <p class="muted">Loading stats…</p>
+      <p class="muted">{{ t("dash.loading", lang) }}</p>
     </div>
 
     <template v-else>
       <div v-if="loadError" class="card" style="margin-bottom: 1rem">
         <p class="error-title" style="margin: 0">{{ loadError }}</p>
         <p class="muted" style="margin: 0.5rem 0 0">
-          Partial data may still be shown below.
+          {{ t("dash.partial", lang) }}
         </p>
       </div>
 
       <section class="grid" style="margin-bottom: 1rem">
         <article class="card stat-card">
-          <h3>Completion</h3>
+          <h3>{{ t("dash.completion", lang) }}</h3>
           <div class="value">
             {{ overview ? `${overview.completion_rate}%` : "—" }}
           </div>
           <p class="muted" style="margin: 0.35rem 0 0; font-size: 0.85rem">
             {{
               overview
-                ? `${overview.completed_tasks}/${overview.total_tasks} tasks`
-                : "No data"
+                ? t("dash.tasks_ratio", lang, {
+                    completed: overview.completed_tasks,
+                    total: overview.total_tasks,
+                  })
+                : t("dash.no_data", lang)
             }}
           </p>
         </article>
         <article class="card stat-card">
-          <h3>Streak</h3>
+          <h3>{{ t("dash.streak", lang) }}</h3>
           <div class="value">🔥 {{ overview ? overview.streak : "—" }}</div>
           <p class="muted" style="margin: 0.35rem 0 0; font-size: 0.85rem">
-            days in a row
+            {{ t("dash.days_in_row", lang) }}
           </p>
         </article>
         <article class="card stat-card">
-          <h3>Habits</h3>
+          <h3>{{ t("dash.habits", lang) }}</h3>
           <div class="value">
             {{ overview ? overview.habits_count : "—" }}
           </div>
           <p class="muted" style="margin: 0.35rem 0 0; font-size: 0.85rem">
-            templates
+            {{ t("dash.templates", lang) }}
           </p>
         </article>
         <article class="card stat-card">
-          <h3>Missed</h3>
+          <h3>{{ t("dash.missed", lang) }}</h3>
           <div class="value">
             {{ overview ? overview.missed_tasks : "—" }}
           </div>
           <p class="muted" style="margin: 0.35rem 0 0; font-size: 0.85rem">
-            incomplete
+            {{ t("dash.incomplete", lang) }}
           </p>
         </article>
       </section>
 
       <section class="card" style="margin-bottom: 1rem">
-        <h2 class="section-title">Completion chart</h2>
-        <CompletionChart :series="dailySeries" />
+        <h2 class="section-title">{{ t("dash.chart_title", lang) }}</h2>
+        <CompletionChart :series="dailySeries" :lang="lang" />
       </section>
 
       <section class="card" style="margin-bottom: 1rem">
-        <h2 class="section-title">Habit breakdown</h2>
-        <HabitBreakdown :items="habits" />
+        <h2 class="section-title">{{ t("dash.habits_title", lang) }}</h2>
+        <HabitBreakdown :items="habits" :lang="lang" />
       </section>
 
       <section class="card">
-        <h2 class="section-title">Schedule</h2>
-        <ScheduleList :items="schedule" />
+        <h2 class="section-title">{{ t("dash.schedule_title", lang) }}</h2>
+        <ScheduleList :items="schedule" :lang="lang" />
       </section>
     </template>
   </div>
@@ -122,12 +128,14 @@ import { clearAccessToken } from "@/auth/session"
 import CompletionChart from "@/components/CompletionChart.vue"
 import HabitBreakdown from "@/components/HabitBreakdown.vue"
 import ScheduleList from "@/components/ScheduleList.vue"
+import { resolveLang, setStoredLang, t, type Lang } from "@/i18n"
 import { rangeLastDays } from "@/utils/dates"
 
 const router = useRouter()
 const loading = ref(true)
 const loadError = ref<string | null>(null)
 const days = ref(7)
+const lang = ref<Lang>(resolveLang())
 const overview = ref<OverviewResponse | null>(null)
 const dailySeries = ref<DailyPoint[]>([])
 const schedule = ref<ScheduleItem[]>([])
@@ -161,6 +169,11 @@ async function loadAll() {
       fetchHabitBreakdown(days.value),
     ])
     overview.value = ov
+    if (ov?.language) {
+      const next = resolveLang(ov.language)
+      lang.value = next
+      setStoredLang(next)
+    }
     dailySeries.value = daily?.series ?? []
     schedule.value = sched?.items ?? []
     habits.value = habitData?.items ?? []
@@ -174,8 +187,7 @@ async function loadAll() {
       return
     }
     loadError.value =
-      err instanceof Error ? err.message : "Failed to load dashboard data"
-    // Keep previous data if any; ensure arrays stay defined
+      err instanceof Error ? err.message : t("dash.load_error", lang.value)
     overview.value = overview.value
     dailySeries.value = dailySeries.value ?? []
     schedule.value = schedule.value ?? []

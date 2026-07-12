@@ -47,6 +47,10 @@ async def stats_overview(
     except ValueError as exc:
         raise _http_422(str(exc)) from exc
 
+    lang = (user.language or "ru").strip().lower()
+    if lang not in {"ru", "en"}:
+        lang = "ru"
+
     return OverviewResponse(
         days=overview.days,
         **{
@@ -58,8 +62,10 @@ async def stats_overview(
             "completion_rate": overview.completion_rate,
             "streak": overview.streak,
             "habits_count": overview.habits_count,
+            "language": lang,
         },
     )
+
 
 
 @router.get(
