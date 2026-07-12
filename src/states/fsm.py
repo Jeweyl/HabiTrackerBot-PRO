@@ -101,17 +101,19 @@ class EditTaskFSM(StatesGroup):
 
 
 class AIAssistantFSM(StatesGroup):
-    """FSM group for the AI multi-turn habit assistant (B2).
+    """FSM group for the AI multi-turn habit assistant (B2/B3).
 
     Flow: title → (AI ask_questions loop, max 3 rounds) → propose_plan
-    preview → user confirm → create habit.
+    preview → user confirm → apply habit + generate tasks (B3).
 
     Attributes:
         start: Initial greeting and habit title input.
         clarifying: User answers the current AI clarifying question
             (text / choice / time).
         confirm_plan: Soft preview of ProposePlan; no DB write until yes.
+            On yes: resolve schedule, conflict check, apply + tasks.
     """
+
 
     start = State()
     clarifying = State()

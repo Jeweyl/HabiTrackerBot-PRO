@@ -482,3 +482,188 @@ async def test_preview_does_not_create_until_confirm(
         await ai_client.send_callback("assist:yes")
         count2 = await async_session.scalar(select(func.count()).select_from(Habit))
         assert int(count2 or 0) == 1
+
+
+# ---------------------------------------------------------------------------
+# B3: apply schedule, duration, conflict, confirm-no
+# ---------------------------------------------------------------------------
+
+
+_SAMPLE_DURATION_ONLY = ProposePlan(
+    type="propose_plan",
+    title="Breathing",
+    start_time="07:00",
+    end_time=None,
+    frequency="daily",
+    duration_minutes=15,
+    comment="15 minutes",
+)
+
+
+@pytest.mark.asyncio
+async def test_confirm_duration_15_persists_end(
+    ai_client: TestClient, async_session
+) -> None:
+    """15-min plan without end_time → Habit end = start + 15m; tasks generated."""
+    from datetime import time
+
+    from sqlalchemy import select
+
+    from src.db.models import Habit, Task
+
+    mock = _sequence_mock([_SAMPLE_DURATION_ONLY])
+
+    with patch("src.handlers.ai_assistant.send_to_ai_parsed", mock):
+        await ai_client.send_callback("new_habit:ai")
+        resp = await ai_client.send_message("дыхание")
+        assert "Предложенный план" in (resp.text or "")
+
+        resp = await ai_client.send_callback("assist:yes")
+        assert "Привычка успешно создана" in (resp.text or "")
+        assert "07:00" in (resp.text or "")
+        assert "07:15" in (resp.text or "")
+
+    habits = (await async_session.execute(select(Habit))).scalars().all()
+    assert len(habits) == 1
+    assert habits[0].start_time == time(7, 0)
+    assert habits[0].end_time == time(7, 15)
+
+    tasks = (await async_session.execute(select(Task))).scalars().all()
+    assert len(tasks) >= 1
+    assert all(t.end_time == time(7, 15) for t in tasks)
+
+
+@pytest.mark.asyncio
+async def test_confirm_no_writes_nothing(
+    ai_client: TestClient, async_session
+) -> None:
+    """assist:no → zero habits and zero tasks."""
+    from sqlalchemy import func, select
+
+    from src.db.models import Habit, Task
+
+    mock = _sequence_mock([_SAMPLE_PROPOSE])
+
+    with patch("src.handlers.ai_assistant.send_to_ai_parsed", mock):
+        await ai_client.send_callback("new_habit:ai")
+        await ai_client.send_message("бег")
+        resp = await ai_client.send_callback("assist:no")
+        assert "может быть, в другой раз" in (resp.text or "").lower()
+
+    h = await async_session.scalar(select(func.count()).select_from(Habit))
+    t = await async_session.scalar(select(func.count()).select_from(Task))
+    assert int(h or 0) == 0
+    assert int(t or 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_confirm_conflict_shows_ui_no_habit(
+    ai_client: TestClient, async_session
+) -> None:
+    """Existing overlapping habit → conflict UI, no second habit until force."""
+    from datetime import time
+
+    from sqlalchemy import func, select
+
+    from src.db.models import Habit, User
+
+    user = User(telegram_id=123456, language="ru", timezone="UTC")
+    async_session.add(user)
+    await async_session.flush()
+    async_session.add(
+        Habit(
+            user_id=user.id,
+            title="Existing run",
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+            frequency="daily",
+        )
+    )
+    await async_session.commit()
+
+    # Sample propose is 08:00–08:30 daily → conflicts
+    mock = _sequence_mock([_SAMPLE_PROPOSE])
+
+    with patch("src.handlers.ai_assistant.send_to_ai_parsed", mock):
+        await ai_client.send_callback("new_habit:ai")
+        await ai_client.send_message("бег")
+        resp = await ai_client.send_callback("assist:yes")
+        assert resp.text is not None
+        assert "конфликт" in resp.text.lower()
+        assert resp.reply_markup is not None
+        all_cb = {
+            btn.callback_data
+            for row in resp.reply_markup.inline_keyboard
+            for btn in row
+        }
+        assert "conflict_habit:force_add" in all_cb
+
+    count = await async_session.scalar(select(func.count()).select_from(Habit))
+    assert int(count or 0) == 1
+
+
+@pytest.mark.asyncio
+async def test_confirm_conflict_force_add_creates(
+    ai_client: TestClient, async_session
+) -> None:
+    """Conflict → force_add creates the AI habit + tasks."""
+    from datetime import time
+
+    from sqlalchemy import func, select
+
+    from src.db.models import Habit, Task, User
+
+    user = User(telegram_id=123456, language="ru", timezone="UTC")
+    async_session.add(user)
+    await async_session.flush()
+    async_session.add(
+        Habit(
+            user_id=user.id,
+            title="Existing run",
+            start_time=time(8, 0),
+            end_time=time(9, 0),
+            frequency="daily",
+        )
+    )
+    await async_session.commit()
+
+    mock = _sequence_mock([_SAMPLE_PROPOSE])
+
+    with patch("src.handlers.ai_assistant.send_to_ai_parsed", mock):
+        await ai_client.send_callback("new_habit:ai")
+        await ai_client.send_message("бег")
+        resp = await ai_client.send_callback("assist:yes")
+        assert "конфликт" in (resp.text or "").lower()
+
+        resp = await ai_client.send_callback("conflict_habit:force_add")
+        assert "Привычка успешно создана" in (resp.text or "")
+
+    count = await async_session.scalar(select(func.count()).select_from(Habit))
+    assert int(count or 0) == 2
+    tasks = await async_session.scalar(select(func.count()).select_from(Task))
+    assert int(tasks or 0) >= 1
+
+
+@pytest.mark.asyncio
+async def test_confirm_yes_generates_tasks_not_single_today(
+    ai_client: TestClient, async_session
+) -> None:
+    """Confirm generates multiple tasks via generate_tasks_for_habit (not 1 hardcoded)."""
+    from sqlalchemy import func, select
+
+    from src.db.models import Task
+
+    mock = _sequence_mock([_SAMPLE_PROPOSE])
+
+    with patch("src.handlers.ai_assistant.send_to_ai_parsed", mock):
+        await ai_client.send_callback("new_habit:ai")
+        await ai_client.send_message("бег")
+        resp = await ai_client.send_callback("assist:yes")
+        assert "Привычка успешно создана" in (resp.text or "")
+        assert "Задач в расписании" in (resp.text or "")
+
+    task_count = await async_session.scalar(select(func.count()).select_from(Task))
+    # days_ahead default 30, daily → many tasks (minus maybe today if past)
+    assert int(task_count or 0) >= 20
+
+

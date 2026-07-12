@@ -1,36 +1,42 @@
-"""AI assistant handlers: multi-turn habit wizard via OpenRouter (B2).
+"""AI assistant handlers: multi-turn habit wizard via OpenRouter (B2/B3).
 
 Flow:
   title → AI turn (ask_questions | propose_plan) → user answers (max 3
-  clarifying rounds) → soft plan preview → confirm → create habit.
+  clarifying rounds) → soft plan preview → confirm → apply habit + tasks.
 
 No habit is written to the DB until the user confirms the preview.
+Confirm applies ProposePlan with duration integrity, conflict UI, and
+``generate_tasks_for_habit`` (no hardcoded 08:00–09:00).
 Every AI call shows a user-visible waiting indicator.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, time, timezone
+from datetime import date, time
 from typing import Any
 
 from aiogram import F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
-from src.db.models import Habit, Task, User, UserAIState
+
+from src.db.models import Habit, Task, User
 from src.db.session import get_db
 from src.i18n import normalize_lang
 from src.keyboards.inline import (
     get_ai_choice_keyboard,
     get_ai_fallback_keyboard,
     get_ai_plan_confirm_keyboard,
+    get_habit_conflict_resolution_keyboard,
     get_hour_selection_keyboard,
     get_main_menu_keyboard,
     get_minute_selection_keyboard,
     get_skip_only_keyboard,
 )
+from src.services.ai_apply import apply_propose_plan, resolve_plan_schedule
 from src.services.ai_schema import (
     AskQuestions,
     ClarifyingQuestion,
@@ -43,8 +49,13 @@ from src.services.ai_service import (
     build_user_context_summary,
     send_to_ai_parsed,
 )
-from src.states.fsm import AIAssistantFSM, MainFSM
+from src.states.fsm import AIAssistantFSM, ConflictHabitFSM, MainFSM
+from src.utils.conflict import (
+    _days_display,
+    _freq_day_overlap,
+)
 from src.utils.time_picker import PENDING_HOUR_KEY, parse_time_callback
+
 
 logger = logging.getLogger(__name__)
 
@@ -711,135 +722,204 @@ async def process_clarifying_text(message: Message, state: FSMContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# State: confirm_plan — yes creates habit; no cancels (soft preview only before)
+# State: confirm_plan — yes applies plan; no cancels (soft preview only before)
 # ---------------------------------------------------------------------------
 
 
-def _parse_hh_mm_safe(value: str | None, default: time) -> time:
-    """Parse HH:MM safely; return *default* on any failure."""
-    if not value or not isinstance(value, str):
-        return default
+_FREQ_LABELS_RU: dict[str, str] = {
+    "daily": "ежедневно",
+    "weekdays": "по будням",
+    "weekends": "по выходным",
+}
+
+
+def _build_ai_habit_conflict_message(
+    title: str,
+    start_time: time,
+    end_time: time | None,
+    frequency: str,
+    conflicting: list[Habit],
+) -> str:
+    """Build conflict message for AI apply path (mirrors manual habit UI)."""
+    time_display = (
+        f"{start_time.strftime('%H:%M')}–{end_time.strftime('%H:%M')}"
+        if end_time
+        else f"{start_time.strftime('%H:%M')}, без окончания"
+    )
+    freq_label = _FREQ_LABELS_RU.get(frequency, frequency)
+
+    lines = [
+        f"⚠️ Привычка «{title}» ({time_display}, {freq_label}) "
+        "конфликтует с существующими привычками:\n",
+    ]
+    for habit in conflicting:
+        c_time = (
+            f"{habit.start_time.strftime('%H:%M')}–"
+            f"{habit.end_time.strftime('%H:%M')}"
+            if habit.end_time
+            else f"{habit.start_time.strftime('%H:%M')}, без окончания"
+        )
+        c_freq = _FREQ_LABELS_RU.get(habit.frequency, habit.frequency)
+        day_overlap = _freq_day_overlap(frequency, habit.frequency)
+        annotation = ""
+        if day_overlap and day_overlap != {0, 1, 2, 3, 4, 5, 6}:
+            annotation = f" — конфликт {_days_display(day_overlap)}"
+        lines.append(f"• {habit.title} ({c_time}, {c_freq}){annotation}")
+
+    lines.append("\nВыберите действие:")
+    return "\n".join(lines)
+
+
+async def _ensure_user_for_apply(
+    session,
+    telegram_id: int,
+    username: str | None,
+) -> User:
+    """Load or create the User row for AI apply (flush only, no commit)."""
+    stmt = select(User).where(User.telegram_id == telegram_id)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+    if user is None:
+        user = User(
+            telegram_id=telegram_id,
+            username=username,
+            language="ru",
+            timezone="UTC",
+        )
+        session.add(user)
+        await session.flush()
+    elif username and user.username != username:
+        user.username = username
+    return user
+
+
+async def _apply_confirmed_plan(
+    callback: CallbackQuery,
+    state: FSMContext,
+    *,
+    force: bool = False,
+) -> None:
+    """Resolve + apply proposed plan; show conflict UI or success/error."""
+    fsm_data = await state.get_data()
+    plan = fsm_data.get("proposed_plan")
+    fallback_title = fsm_data.get("title")
+    telegram_id = callback.from_user.id
+
+    # Pre-validate schedule so we never hit hardcoded defaults
+    resolved = resolve_plan_schedule(plan, fallback_title=fallback_title)
+    if resolved is None:
+        await callback.message.edit_text(
+            "Некорректный план: не удалось определить время привычки. "
+            "Попробуйте ещё раз или создайте вручную.",
+            reply_markup=get_ai_fallback_keyboard(),
+        )
+        return
+
     try:
-        parts = value.strip().split(":")
-        if len(parts) != 2:
-            return default
-        hour = int(parts[0])
-        minute = int(parts[1])
-        if hour not in range(24) or minute not in (0, 15, 30, 45):
-            return default
-        return time(hour, minute)
-    except (TypeError, ValueError):
-        return default
+        async with get_db() as session:
+            user = await _ensure_user_for_apply(
+                session,
+                telegram_id,
+                callback.from_user.username,
+            )
+            result = await apply_propose_plan(
+                session,
+                user,
+                plan,
+                force=force,
+                fallback_title=fallback_title,
+            )
+
+            if result.status == "conflict":
+                # Store pending fields for force_add / change_time handlers
+                await state.update_data(
+                    habit_title=resolved.title,
+                    habit_start_time=resolved.start_time,
+                    habit_end_time=resolved.end_time,
+                    habit_frequency=resolved.frequency,
+                    habit_user_id=user.id,
+                    conflict_is_edit=False,
+                    ai_apply=True,
+                    proposed_plan=plan,
+                    title=fallback_title or resolved.title,
+                    start_time=resolved.start_time,
+                    end_time=resolved.end_time,
+                    frequency=resolved.frequency,
+                )
+                await state.set_state(ConflictHabitFSM.choose_action)
+                await callback.message.edit_text(
+                    _build_ai_habit_conflict_message(
+                        resolved.title,
+                        resolved.start_time,
+                        resolved.end_time,
+                        resolved.frequency,
+                        result.conflicting,
+                    ),
+                    reply_markup=get_habit_conflict_resolution_keyboard(
+                        is_edit=False
+                    ),
+                )
+                return
+
+            if result.status != "ok" or result.habit is None:
+                await callback.message.edit_text(
+                    result.error
+                    or "Не удалось сохранить привычку. "
+                    "Попробуйте позже или создайте вручную.",
+                    reply_markup=get_ai_fallback_keyboard(),
+                )
+                return
+
+            habit = result.habit
+            tasks_created = result.tasks_created
+            # session commits on context exit
+    except Exception:
+        logger.error(
+            "Failed to apply AI plan for user %s",
+            telegram_id,
+            exc_info=True,
+        )
+        await callback.message.edit_text(
+            "Не удалось сохранить привычку. Попробуйте позже или создайте вручную.",
+            reply_markup=get_ai_fallback_keyboard(),
+        )
+        return
+
+    await state.clear()
+    await state.set_state(MainFSM.main_menu)
+    time_line = (
+        f"{resolved.start_time.strftime('%H:%M')}–"
+        f"{resolved.end_time.strftime('%H:%M')}"
+    )
+    freq_label = _FREQ_LABELS_RU.get(resolved.frequency, resolved.frequency)
+    await callback.message.edit_text(
+        "✅ Привычка успешно создана!\n\n"
+        f"*{resolved.title}*\n"
+        f"Частота: {freq_label}\n"
+        f"Время: {time_line}\n"
+        f"Задач в расписании: {tasks_created}",
+        reply_markup=get_main_menu_keyboard(),
+        parse_mode="Markdown",
+    )
+    logger.info(
+        "AI apply: habit %s for telegram_id=%s tasks=%s force=%s",
+        getattr(habit, "id", None),
+        telegram_id,
+        tasks_created,
+        force,
+    )
 
 
 @router.callback_query(AIAssistantFSM.confirm_plan)
 async def process_plan_confirmation(
     callback: CallbackQuery, state: FSMContext
 ) -> None:
-    """Confirm preview: create habit on yes; cancel on no. No silent writes."""
+    """Confirm preview: apply plan on yes; cancel on no. No silent writes."""
     await callback.answer()
     data_cb = callback.data
 
     if data_cb == "assist:yes":
-        fsm_data = await state.get_data()
-        plan = fsm_data.get("proposed_plan") or {}
-        title = (plan.get("title") or fsm_data.get("title") or "New Habit")[:200]
-        start_t = _parse_hh_mm_safe(plan.get("start_time"), time(8, 0))
-        end_raw = plan.get("end_time")
-        end_t = (
-            _parse_hh_mm_safe(end_raw, time(9, 0)) if end_raw else time(9, 0)
-        )
-        frequency = plan.get("frequency") or "daily"
-        if frequency not in ("daily", "weekdays", "weekends"):
-            frequency = "daily"
-
-        telegram_id = callback.from_user.id
-
-        try:
-            async with get_db() as session:
-                stmt = select(User).where(User.telegram_id == telegram_id)
-                result = await session.execute(stmt)
-                user = result.scalar_one_or_none()
-
-                if user is None:
-                    user = User(
-                        telegram_id=telegram_id,
-                        username=callback.from_user.username,
-                        language="ru",
-                        timezone="UTC",
-                    )
-                    session.add(user)
-                    await session.flush()
-                elif (
-                    callback.from_user.username
-                    and user.username != callback.from_user.username
-                ):
-                    user.username = callback.from_user.username
-
-                habit = Habit(
-                    user_id=user.id,
-                    title=title,
-                    start_time=start_t,
-                    end_time=end_t,
-                    frequency=frequency,
-                )
-                session.add(habit)
-                await session.flush()
-
-                today = date.today()
-                task = Task(
-                    user_id=user.id,
-                    habit_id=habit.id,
-                    title=title,
-                    date=today,
-                    start_time=start_t,
-                    end_time=end_t,
-                    is_completed=False,
-                    is_placeholder=False,
-                )
-                session.add(task)
-
-                stmt_ai = select(UserAIState).where(UserAIState.user_id == user.id)
-                result_ai = await session.execute(stmt_ai)
-                ai_state = result_ai.scalar_one_or_none()
-                if ai_state is None:
-                    ai_state = UserAIState(user_id=user.id, summary=plan)
-                    session.add(ai_state)
-                else:
-                    ai_state.summary = plan
-                    ai_state.updated_at = datetime.now(timezone.utc)
-
-                await session.commit()
-
-                logger.info(
-                    "Created habit %d and task %d for user %d via AI multi-turn",
-                    habit.id,
-                    task.id,
-                    user.id,
-                )
-        except Exception:
-            logger.error(
-                "Failed to create habit from AI plan for user %s",
-                telegram_id,
-                exc_info=True,
-            )
-            await callback.message.edit_text(
-                "Не удалось сохранить привычку. Попробуйте позже или создайте вручную.",
-                reply_markup=get_ai_fallback_keyboard(),
-            )
-            return
-
-        await state.clear()
-        await state.set_state(MainFSM.main_menu)
-        time_line = f"{start_t.strftime('%H:%M')}–{end_t.strftime('%H:%M')}"
-        await callback.message.edit_text(
-            "✅ Привычка успешно создана!\n\n"
-            f"*{title}*\n"
-            f"Частота: {frequency}\n"
-            f"Время: {time_line}",
-            reply_markup=get_main_menu_keyboard(),
-            parse_mode="Markdown",
-        )
+        await _apply_confirmed_plan(callback, state, force=False)
         return
 
     if data_cb == "assist:no":
@@ -853,3 +933,49 @@ async def process_plan_confirmation(
 
     # Unknown callback under confirm_plan — ignore safely
     logger.debug("Unhandled confirm_plan callback: %s", data_cb)
+
+
+@router.callback_query(
+    ConflictHabitFSM.choose_action,
+    F.data == "conflict_habit:force_add",
+)
+async def ai_conflict_force_add(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    """Force-add after AI conflict when ``ai_apply`` flag is set.
+
+    Manual habit force_add is handled in ``habits.py``; this handler only
+    runs when the conflict originated from the AI confirm path.
+    """
+    data = await state.get_data()
+    if not data.get("ai_apply"):
+        # Not an AI-originated conflict — let habits router handle it.
+        raise SkipHandler()
+
+    await callback.answer()
+
+    # Ensure proposed_plan is present for apply
+    if not data.get("proposed_plan"):
+        resolved_title = data.get("habit_title") or data.get("title")
+        start = data.get("habit_start_time") or data.get("start_time")
+        end = data.get("habit_end_time") or data.get("end_time")
+        freq = data.get("habit_frequency") or data.get("frequency") or "daily"
+        if start is not None and end is not None:
+            await state.update_data(
+                proposed_plan={
+                    "type": "propose_plan",
+                    "title": resolved_title,
+                    "start_time": start.strftime("%H:%M")
+                    if hasattr(start, "strftime")
+                    else start,
+                    "end_time": end.strftime("%H:%M")
+                    if hasattr(end, "strftime")
+                    else end,
+                    "frequency": freq,
+                    "duration_minutes": None,
+                    "comment": "",
+                }
+            )
+    await _apply_confirmed_plan(callback, state, force=True)
+
+
