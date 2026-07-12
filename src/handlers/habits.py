@@ -95,7 +95,7 @@ async def _show_habit_list(
 
     if not habits:
         await target.edit_text(
-            "У вас пока нет привычек. Создайте первую через ➕ Создать привычку!",
+            "У вас пока нет привычек. Создайте первую через /n ➕ Создать привычку!",
             reply_markup=get_main_menu_keyboard(),
         )
         await state.set_state(MainFSM.main_menu)
@@ -465,7 +465,7 @@ async def show_interact_menu(callback: CallbackQuery, state: FSMContext) -> None
 
     if not habits:
         await callback.message.edit_text(
-            "У вас пока нет привычек. Создайте первую через ➕ Создать привычку!",
+            "У вас пока нет привычек. Создайте первую через /n ➕ Создать привычку!",
             reply_markup=get_main_menu_keyboard(),
         )
         await state.clear()
