@@ -21,3 +21,20 @@ def test_db_pool_size_default() -> None:
 def test_bot_http_timeout_default() -> None:
     """BOT_HTTP_TIMEOUT must default to 10 seconds (Telegram API)."""
     assert Settings.model_fields["BOT_HTTP_TIMEOUT"].default == 10
+
+
+def test_bot_public_url_default_empty() -> None:
+    """BOT_PUBLIC_URL must default to empty string (optional onboarding link)."""
+    assert Settings.model_fields["BOT_PUBLIC_URL"].default == ""
+
+
+def test_channel_url_default_empty() -> None:
+    """CHANNEL_URL must default to empty string (optional onboarding link)."""
+    assert Settings.model_fields["CHANNEL_URL"].default == ""
+
+
+def test_original_bot_username_default_empty() -> None:
+    """ORIGINAL_BOT_USERNAME must default to empty string (optional)."""
+    assert Settings.model_fields["ORIGINAL_BOT_USERNAME"].default == ""
+
+

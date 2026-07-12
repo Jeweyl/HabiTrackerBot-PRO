@@ -67,6 +67,9 @@ class Settings(BaseSettings):
         BOT_HTTP_TIMEOUT: Telegram Bot API HTTP timeout in seconds (default: 10).
         DB_POOL_SIZE: SQLAlchemy async connection pool size (default: 5).
         REMINDER_POLL_SECONDS: Reminder loop interval in seconds (default: 300).
+        BOT_PUBLIC_URL: Public t.me link to this bot (optional, for onboarding).
+        CHANNEL_URL: Public channel URL (optional, for onboarding).
+        ORIGINAL_BOT_USERNAME: Original bot username without @ (optional).
     """
 
     BOT_TOKEN: str = ""
@@ -80,6 +83,10 @@ class Settings(BaseSettings):
     BOT_HTTP_TIMEOUT: int = 10
     DB_POOL_SIZE: int = 5
     REMINDER_POLL_SECONDS: int = 300
+    BOT_PUBLIC_URL: str = ""
+    CHANNEL_URL: str = ""
+    ORIGINAL_BOT_USERNAME: str = ""
+
 
 
     model_config = SettingsConfigDict(

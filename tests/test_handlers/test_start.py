@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import User
+from src.handlers.common import _build_start_text
 from src.keyboards.inline import MAIN_MENU_BUTTONS
 
 if TYPE_CHECKING:
@@ -31,8 +32,10 @@ async def test_start_creates_user(
     with patch("src.handlers.common.get_db", side_effect=_mock_get_db):
         message = await client.send_message("/start")
 
-    # Check the response
-    assert message.text == "🏠 Главное меню бота\nВыберите действие:"
+    # Onboarding text + main menu keyboard
+    assert message.text is not None
+    assert "HabiTracker" in message.text
+    assert "Создать привычку" in message.text or "создать привычку" in message.text.lower()
     assert message.reply_markup is not None
     assert len(message.reply_markup.inline_keyboard) == 9
 
@@ -63,7 +66,9 @@ async def test_start_existing_user_not_duplicated(
     with patch("src.handlers.common.get_db", side_effect=_mock_get_db):
         message = await client.send_message("/start")
 
-    assert message.text == "🏠 Главное меню бота\nВыберите действие:"
+    assert message.text is not None
+    assert "HabiTracker" in message.text
+    assert message.reply_markup is not None
 
     # Ensure only one record exists
     stmt = select(User).where(User.telegram_id == 123456)
@@ -80,7 +85,7 @@ async def test_start_sends_correct_keyboard(
     client: "TestClient",
     async_session: AsyncSession,
 ) -> None:
-    """Verify that /start sends an inline keyboard with 8 buttons and correct callback_data."""
+    """Verify that /start sends an inline keyboard with correct callback_data."""
 
     @asynccontextmanager
     async def _mock_get_db():
@@ -96,3 +101,31 @@ async def test_start_sends_correct_keyboard(
         assert len(row) == 1
         assert row[0].text == expected_label
         assert row[0].callback_data == expected_cb
+
+
+def test_start_includes_links_when_configured() -> None:
+    """Onboarding text must include links when settings provide them."""
+    text = _build_start_text(
+        bot_public_url="https://t.me/HabiTrakerBot",
+        channel_url="https://t.me/HabiTraker",
+        original_bot_username="HabiTrakerBot",
+    )
+    assert "HabiTracker" in text
+    assert "https://t.me/HabiTraker" in text
+    assert "HabiTrakerBot" in text
+    assert "Ссылки" in text or "ссылк" in text.lower()
+
+
+def test_start_skips_links_when_empty() -> None:
+    """Empty URLs must omit the links block without crashing."""
+    text = _build_start_text(
+        bot_public_url="",
+        channel_url="",
+        original_bot_username="",
+    )
+    assert "HabiTracker" in text
+    assert "Ссылки" not in text
+    assert "https://t.me/" not in text
+    assert "@" not in text or "HabiTracker" in text  # no bot @mention required
+    # CTA / description still present
+    assert "привыч" in text.lower()

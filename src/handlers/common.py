@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
+from src.config import settings
 from src.db.models import User
 from src.db.session import get_db
 from src.keyboards.inline import (
@@ -21,6 +22,55 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 """Router for common handlers (start, main menu)."""
+
+
+def _build_start_text(
+    bot_public_url: str = "",
+    channel_url: str = "",
+    original_bot_username: str = "",
+) -> str:
+    """Build the selling /start onboarding message (HTML).
+
+    Link lines are included only when the corresponding value is non-empty.
+    Empty URLs never produce a broken links block.
+
+    Args:
+        bot_public_url: Public t.me URL of this bot.
+        channel_url: Public channel URL.
+        original_bot_username: Original bot username without ``@``.
+
+    Returns:
+        HTML-formatted onboarding text ending with a CTA to the main menu.
+    """
+    parts: list[str] = [
+        "👋 <b>HabiTracker</b> — бот для привычек и расписания.",
+        "",
+        "Формируйте привычки, получайте задачи на день и отмечайте выполнение.",
+        "AI-ассистент поможет превратить «хочу больше двигаться» "
+        "в конкретную SMART-цель — без конфликтов времени в календаре.",
+        "",
+        "🚀 <b>Как начать</b>",
+        "1. Нажмите «➕ Создать привычку»",
+        "2. Выберите вручную или с помощью AI",
+        "3. Бот сам поставит задачи в расписание",
+    ]
+
+    link_lines: list[str] = []
+    username = (original_bot_username or "").strip().lstrip("@")
+    if username:
+        link_lines.append(f"• Оригинал: @{username}")
+    channel = (channel_url or "").strip()
+    if channel:
+        link_lines.append(f"• Канал: {channel}")
+    bot_url = (bot_public_url or "").strip()
+    if bot_url:
+        link_lines.append(f"• Бот: {bot_url}")
+
+    if link_lines:
+        parts.extend(["", "🔗 <b>Ссылки</b>", *link_lines])
+
+    parts.extend(["", "Выберите действие:"])
+    return "\n".join(parts)
 
 
 def _get_button_label(callback_data: str) -> str:
@@ -44,7 +94,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 
     Creates a new user record if the user does not exist, otherwise updates
     ``updated_at``.  Sets the FSM state to ``MainFSM.main_menu`` and sends
-    the main menu inline keyboard.
+    the onboarding text with the main menu inline keyboard.
 
     Args:
         message: Incoming message object from Telegram.
@@ -74,13 +124,17 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             await session.commit()
             logger.info("Updated existing user with telegram_id=%d", telegram_id)
 
-
     await state.set_state(MainFSM.main_menu)
 
     await message.answer(
-        "🏠 Главное меню бота\nВыберите действие:",
+        _build_start_text(
+            bot_public_url=settings.BOT_PUBLIC_URL,
+            channel_url=settings.CHANNEL_URL,
+            original_bot_username=settings.ORIGINAL_BOT_USERNAME,
+        ),
         reply_markup=get_main_menu_keyboard(),
     )
+
 
 
 # ===========================================================================
