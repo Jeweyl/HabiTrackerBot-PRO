@@ -56,17 +56,19 @@ def display_width(text: str) -> int:
 
 
 def strip_button_padding(text: str) -> str:
-    """Remove trailing/leading pad characters from a button label."""
+    """Remove leading/trailing pad characters from a button label."""
     if not text:
         return text
-    return text.strip(PAD_CHAR).rstrip()
+    return text.strip(PAD_CHAR)
 
 
 def pad_button_text(text: str, width: int = TARGET_WIDTH) -> str:
-    """Right-pad *text* with :data:`PAD_CHAR` up to *width* display units.
+    """Center-pad *text* with :data:`PAD_CHAR` up to *width* display units.
 
-    Labels already at or above *width* are returned unchanged (still
-    stripped of accidental trailing pads first for stability).
+    Extra space is split left/right so short labels sit near the middle of
+    the button instead of hugging the left edge.  Labels already at or
+    above *width* are returned unchanged (still stripped of accidental
+    pads first for stability).
     """
     base = strip_button_padding(text) if text else " "
     if not base:
@@ -74,7 +76,11 @@ def pad_button_text(text: str, width: int = TARGET_WIDTH) -> str:
     current = display_width(base)
     if current >= width:
         return base
-    return base + PAD_CHAR * (width - current)
+    deficit = width - current
+    left = deficit // 2
+    right = deficit - left
+    return PAD_CHAR * left + base + PAD_CHAR * right
+
 
 
 def stabilize_markup(
@@ -115,10 +121,13 @@ def stabilize_markup(
         # If the row is still short (spacers / tiny labels), top up last button.
         total = sum(display_width(b.text or "") for b in new_row)
         if total < min_width and new_row:
+            # Prefer topping up the last non-spacer button so the row
+            # still reaches min_width without re-centering mid-label.
             deficit = min_width - total
             last = new_row[-1]
             new_row[-1] = _with_text(last, (last.text or "") + PAD_CHAR * deficit)
         new_rows.append(new_row)
+
 
     return InlineKeyboardMarkup(inline_keyboard=new_rows)
 

@@ -34,11 +34,20 @@ class TestDisplayWidth:
 
 
 class TestPadButtonText:
-    def test_pads_short_label(self) -> None:
+    def test_pads_short_label_centered(self) -> None:
         padded = pad_button_text("OK", width=10)
-        assert padded.startswith("OK")
+        assert strip_button_padding(padded) == "OK"
         assert display_width(padded) == 10
         assert PAD_CHAR in padded
+        # Centered: pad on both sides (even deficit → equal sides).
+        assert padded.startswith(PAD_CHAR)
+        assert padded.endswith(PAD_CHAR)
+
+    def test_center_split_odd_deficit(self) -> None:
+        # "A" width 1, target 6 → deficit 5 → left 2, right 3
+        padded = pad_button_text("A", width=6)
+        assert padded == PAD_CHAR * 2 + "A" + PAD_CHAR * 3
+        assert display_width(padded) == 6
 
     def test_does_not_shrink_long_label(self) -> None:
         long = "X" * 40
@@ -50,7 +59,8 @@ class TestPadButtonText:
         assert once == twice
 
     def test_strip_helper(self) -> None:
-        assert strip_button_padding(f"Menu{PAD_CHAR * 5}") == "Menu"
+        assert strip_button_padding(f"{PAD_CHAR * 3}Menu{PAD_CHAR * 5}") == "Menu"
+
 
 
 class TestStabilizeMarkup:
