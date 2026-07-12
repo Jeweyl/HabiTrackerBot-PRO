@@ -329,3 +329,93 @@ class TestStatisticsNoData:
         assert "3 из 3" in text
         assert "100%" in text
         assert "0 задач" in text
+
+
+# ---------------------------------------------------------------------------
+# Tests: dashboard button (C2)
+# ---------------------------------------------------------------------------
+
+
+class TestStatisticsDashboardButton:
+    """Dashboard URL button appears only when a link is issued."""
+
+    @pytest.mark.asyncio
+    async def test_dashboard_button_when_link_available(
+        self,
+        full_client: "TestClient",
+        async_session: AsyncSession,
+    ) -> None:
+        """When issue_dashboard_link returns a URL, keyboard has a url button."""
+        await _create_user(async_session)
+        dash_url = "http://localhost:8080/login?token=abc123"
+
+        with (
+            patch(
+                "src.handlers.statistics.get_db",
+                _mock_get_db_context(async_session),
+            ),
+            patch(
+                "src.handlers.statistics.issue_dashboard_link",
+                return_value=dash_url,
+            ),
+            patch("src.handlers.statistics.RedisTokenStore"),
+        ):
+            resp: Message = await full_client.send_callback(
+                "main_menu:statistics",
+                user_id=123456,
+                message_text="🏠 Главное меню бота\nВыберите действие:",
+            )
+
+        markup = resp.reply_markup
+        assert markup is not None
+        urls = [
+            btn.url
+            for row in markup.inline_keyboard
+            for btn in row
+            if getattr(btn, "url", None)
+        ]
+        assert dash_url in urls
+
+    @pytest.mark.asyncio
+    async def test_no_dashboard_button_when_link_none(
+        self,
+        full_client: "TestClient",
+        async_session: AsyncSession,
+    ) -> None:
+        """Empty DASHBOARD_PUBLIC_URL → no url button (only back)."""
+        await _create_user(async_session)
+
+        with (
+            patch(
+                "src.handlers.statistics.get_db",
+                _mock_get_db_context(async_session),
+            ),
+            patch(
+                "src.handlers.statistics.issue_dashboard_link",
+                return_value=None,
+            ),
+            patch("src.handlers.statistics.RedisTokenStore"),
+        ):
+            resp: Message = await full_client.send_callback(
+                "main_menu:statistics",
+                user_id=123456,
+                message_text="🏠 Главное меню бота\nВыберите действие:",
+            )
+
+        markup = resp.reply_markup
+        assert markup is not None
+        urls = [
+            btn.url
+            for row in markup.inline_keyboard
+            for btn in row
+            if getattr(btn, "url", None)
+        ]
+        assert urls == []
+        # Back button still present
+        callbacks = [
+            btn.callback_data
+            for row in markup.inline_keyboard
+            for btn in row
+            if getattr(btn, "callback_data", None)
+        ]
+        assert "nav:cancel" in callbacks

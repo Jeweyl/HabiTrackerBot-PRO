@@ -28,6 +28,8 @@ STRINGS: dict[str, str] = {
     "main.statistics": "📊 Statistics",
     "main.settings": "⚙️ Settings",
     "main.help": "❓ Help",
+    "stats.open_dashboard": "📊 Open dashboard",
+    "stats.back": "⬅️ Back",
     "main.under_development": "Feature '{label}' is under development. Stay tuned!",
     "main.new_habit_choice": "Choose how to create a habit:",
     # --- help ---

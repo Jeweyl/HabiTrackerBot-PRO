@@ -61,7 +61,20 @@ services:
     ports:
       - "8000:8000"
 
+  # Vue dashboard (C2) — nginx SPA + /api proxy to api:8000
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: habits_web
+    restart: "no"
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
 volumes:
   postgres_data:
+
 
 

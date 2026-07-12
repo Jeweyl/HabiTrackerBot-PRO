@@ -28,6 +28,8 @@ STRINGS: dict[str, str] = {
     "main.statistics": "📊 Статистика",
     "main.settings": "⚙️ Настройки",
     "main.help": "❓ Помощь",
+    "stats.open_dashboard": "📊 Открыть дашборд",
+    "stats.back": "⬅️ Назад",
     "main.under_development": "Функция '{label}' находится в разработке. Следите за обновлениями!",
     "main.new_habit_choice": "Выберите способ создания привычки:",
     # --- help ---

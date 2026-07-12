@@ -4,11 +4,15 @@ import logging
 from datetime import date, timedelta
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func, select
 
+from src.api.token_store import RedisTokenStore
 from src.db.models import Habit, Task, User
 from src.db.session import get_db
+from src.i18n import normalize_lang, t
+from src.services.dashboard_link import issue_dashboard_link
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +75,28 @@ async def _calculate_streak(
     return streak
 
 
+def _stats_keyboard(
+    lang: str,
+    dashboard_url: str | None = None,
+) -> InlineKeyboardMarkup:
+    """Build keyboard under statistics: optional dashboard URL + back."""
+    builder = InlineKeyboardBuilder()
+    if dashboard_url:
+        builder.row(
+            InlineKeyboardButton(
+                text=t("stats.open_dashboard", lang),
+                url=dashboard_url,
+            )
+        )
+    builder.row(
+        InlineKeyboardButton(
+            text=t("stats.back", lang),
+            callback_data="nav:cancel",
+        )
+    )
+    return builder.as_markup()
+
+
 @router.callback_query(F.data == "main_menu:statistics")
 async def show_statistics(callback: CallbackQuery) -> None:
     """Show user statistics for the last 7 days.
@@ -80,6 +106,7 @@ async def show_statistics(callback: CallbackQuery) -> None:
         - Missed tasks count.
         - Current streak of consecutive fully-completed days.
         - Total number of habits.
+        - Optional URL button to open the web dashboard (one-time token).
 
     If no data is available, shows an appropriate message.
 
@@ -90,6 +117,8 @@ async def show_statistics(callback: CallbackQuery) -> None:
 
     today = date.today()
     since = today - timedelta(days=6)
+    lang = "ru"
+    dashboard_url: str | None = None
 
     async with get_db() as session:
         # Resolve user
@@ -99,9 +128,11 @@ async def show_statistics(callback: CallbackQuery) -> None:
 
         if user is None:
             await callback.message.edit_text(
-                "⚠️ Пользователь не найден. Используйте /start для регистрации.",
+                t("common.user_not_found", "ru"),
             )
             return
+
+        lang = normalize_lang(user.language)
 
         # Total tasks in the last 7 days
         total_stmt = select(func.count(Task.id)).where(
@@ -135,6 +166,16 @@ async def show_statistics(callback: CallbackQuery) -> None:
         # Calculate streak
         streak = await _calculate_streak(session, user.id, today)
 
+        # One-time dashboard link (None if not configured / Redis error)
+        try:
+            from src.bot import redis as bot_redis
+
+            store = RedisTokenStore(bot_redis)
+            dashboard_url = await issue_dashboard_link(user.id, store)
+        except Exception:
+            logger.exception("Dashboard link failed for user_id=%s", user.id)
+            dashboard_url = None
+
     if total_count == 0 and habits_count == 0:
         message = (
             "📊 <b>Статистика</b>\n\n"
@@ -143,7 +184,6 @@ async def show_statistics(callback: CallbackQuery) -> None:
             "чтобы начать отслеживать прогресс! 🚀"
         )
     elif total_count == 0:
-        percentage = 0
         message = (
             "📊 <b>Ваша статистика за последние 7 дней:</b>\n\n"
             f"✅ Выполнено: 0 из 0 задач (0%)\n"
@@ -168,4 +208,8 @@ async def show_statistics(callback: CallbackQuery) -> None:
 
         message += "\nПродолжайте в том же духе! 💪"
 
-    await callback.message.edit_text(message, parse_mode="HTML")
+    await callback.message.edit_text(
+        message,
+        parse_mode="HTML",
+        reply_markup=_stats_keyboard(lang, dashboard_url),
+    )

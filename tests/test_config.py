@@ -53,4 +53,6 @@ def test_api_port_default() -> None:
     assert Settings.model_fields["API_PORT"].default == 8000
 
 
-
+def test_dashboard_public_url_default_empty() -> None:
+    """DASHBOARD_PUBLIC_URL must default to empty (dashboard button hidden)."""
+    assert Settings.model_fields["DASHBOARD_PUBLIC_URL"].default == ""

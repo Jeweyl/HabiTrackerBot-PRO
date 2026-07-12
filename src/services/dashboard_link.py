@@ -1,0 +1,85 @@
+"""Build one-time dashboard login links for Telegram users."""
+
+from __future__ import annotations
+
+import logging
+from typing import Protocol
+from urllib.parse import quote
+
+from src.api.auth import create_ott
+from src.api.token_store import TokenStore
+from src.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class SupportsCreateOtt(Protocol):
+    """Minimal store protocol used by :func:`issue_dashboard_link`."""
+
+    async def set(self, key: str, value: str, ttl_seconds: int) -> None: ...
+
+
+def normalize_dashboard_base_url(raw: str | None) -> str | None:
+    """Return a clean public dashboard base URL, or ``None`` if unset.
+
+    Empty / whitespace / placeholder values disable the dashboard button.
+    Trailing slashes are stripped so callers can safely append paths.
+    """
+    if raw is None:
+        return None
+    base = str(raw).strip().rstrip("/")
+    if not base:
+        return None
+    lowered = base.lower()
+    if lowered in {"none", "null", "false", "0"}:
+        return None
+    return base
+
+
+def build_login_url(base_url: str, token: str) -> str:
+    """Compose ``{base}/login?token=...`` with a URL-encoded token."""
+    safe_token = quote(str(token), safe="")
+    return f"{base_url.rstrip('/')}/login?token={safe_token}"
+
+
+async def issue_dashboard_link(
+    user_id: int,
+    store: TokenStore | SupportsCreateOtt,
+    *,
+    base_url: str | None = None,
+    ttl_seconds: int | None = None,
+) -> str | None:
+    """Issue a one-time dashboard login URL for *user_id*.
+
+    Returns:
+        Full login URL, or ``None`` when the dashboard is not configured
+        (empty ``DASHBOARD_PUBLIC_URL``) or token creation fails.
+
+    Never raises for configuration / store errors — callers can safely
+    omit the button when the result is ``None``.
+    """
+    base = normalize_dashboard_base_url(
+        base_url if base_url is not None else settings.DASHBOARD_PUBLIC_URL
+    )
+    if base is None:
+        return None
+
+    if user_id is None:
+        return None
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        logger.warning("issue_dashboard_link: invalid user_id=%r", user_id)
+        return None
+    if uid <= 0:
+        return None
+
+    try:
+        ott = await create_ott(store, uid, ttl_seconds=ttl_seconds)
+    except Exception:
+        logger.exception("Failed to create dashboard OTT for user_id=%s", uid)
+        return None
+
+    if not ott:
+        return None
+    return build_login_url(base, ott)

@@ -76,6 +76,7 @@ class Settings(BaseSettings):
         API_CORS_ORIGINS: Comma-separated CORS origins; empty = allow all.
         API_HOST: Uvicorn bind host for the stats API (default 0.0.0.0).
         API_PORT: Uvicorn bind port for the stats API (default 8000).
+        DASHBOARD_PUBLIC_URL: Public base URL of the Vue dashboard (optional).
     """
 
     BOT_TOKEN: str = ""
@@ -99,9 +100,7 @@ class Settings(BaseSettings):
     API_CORS_ORIGINS: str = ""
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
-
-
-
+    DASHBOARD_PUBLIC_URL: str = ""
 
     model_config = SettingsConfigDict(
         env_file=_env_file,
@@ -130,8 +129,7 @@ class Settings(BaseSettings):
             )
         if ":" not in v:
             raise ValueError(
-                f"BOT_TOKEN format is invalid (no ':' found). "
-                f"Got: {v[:10]}..."
+                f"BOT_TOKEN format is invalid (no ':' found). " f"Got: {v[:10]}..."
             )
         return v
 
@@ -149,9 +147,7 @@ class Settings(BaseSettings):
             import os
 
             v = (
-                os.getenv("DATABASE_PUBLIC_URL")
-                or os.getenv("POSTGRES_URL")
-                or ""
+                os.getenv("DATABASE_PUBLIC_URL") or os.getenv("POSTGRES_URL") or ""
             ).strip()
         if _is_placeholder(v):
             raise ValueError(

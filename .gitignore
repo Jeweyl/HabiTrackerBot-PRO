@@ -18,3 +18,7 @@ postgres_data/
 *.swo
 /venv
 ale
+web/node_modules/
+web/dist/
+
+
