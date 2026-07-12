@@ -35,7 +35,7 @@ async def _call_openrouter(
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
-        "max_tokens": 500,
+        "max_tokens": 1000,
     }
 
     timeout = aiohttp.ClientTimeout(total=15)
@@ -79,8 +79,10 @@ async def _call_openrouter(
     # Guard against None / empty content
     if not content or (isinstance(content, str) and not content.strip()):
         logger.warning(
-            "OpenRouter model '%s' returned empty content (None or blank).",
+            "OpenRouter model '%s' returned empty content (None or blank). "
+            "Raw response: %s",
             model,
+            str(data)[:500],
         )
         return None
 
@@ -116,7 +118,7 @@ async def send_to_ai(
     Args:
         prompt: The user prompt to send to the AI model.
         model: Optional model identifier override.  Defaults to
-            ``settings.AI_MODEL`` ("google/gemini-1.5-flash") when ``None``.
+            ``settings.AI_MODEL`` ("deepseek/deepseek-v4-flash") when ``None``.
 
     Returns:
         A dictionary parsed from the AI's JSON response, or ``None`` if all

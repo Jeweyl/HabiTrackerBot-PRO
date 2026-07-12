@@ -18,13 +18,6 @@ FREQ_DAYS: dict[str, set[int]] = {
 }
 """Mapping from frequency slug to the set of matching weekday numbers (Mon=0..Sun=6)."""
 
-FREQ_LABELS_RU: dict[str, str] = {
-    "daily": "Ежедневно",
-    "weekdays": "По будням",
-    "weekends": "По выходным",
-}
-"""Russian labels for frequency values."""
-
 _DAY_NAMES_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 

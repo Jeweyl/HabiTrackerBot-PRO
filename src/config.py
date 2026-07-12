@@ -12,9 +12,9 @@ class Settings(BaseSettings):
         REDIS_URL: Redis connection string.
         ADMIN_ID: Telegram user ID of the bot administrator.
         ROUTER_API_KEY: API key for OpenRouter AI service.
-        AI_MODEL: AI model identifier (default: "google/gemini-1.5-flash").
+        AI_MODEL: AI model identifier (default: "deepseek/deepseek-v4-flash").
         AI_FALLBACK_MODEL: Fallback model when primary returns empty (default:
-            "meta-llama/llama-3.1-8b-instruct:free").
+            "meta-llama/llama-3.1-8b-instruct").
     """
 
     BOT_TOKEN: str
@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     REDIS_URL: str
     ADMIN_ID: int
     ROUTER_API_KEY: str = ""
-    AI_MODEL: str = "google/gemini-1.5-flash"
-    AI_FALLBACK_MODEL: str = "meta-llama/llama-3.1-8b-instruct:free"
+    AI_MODEL: str = "deepseek/deepseek-v4-flash"
+    AI_FALLBACK_MODEL: str = "meta-llama/llama-3.1-8b-instruct"
 
     model_config = SettingsConfigDict(
         env_file=".env",

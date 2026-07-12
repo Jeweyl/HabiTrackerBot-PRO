@@ -542,45 +542,6 @@ def get_task_action_keyboard(
     return builder.as_markup()
 
 
-def get_task_management_keyboard(
-    task_id: int,
-    has_habit: bool = False,
-    is_modified: bool = False,
-) -> InlineKeyboardMarkup:
-    """Build an inline keyboard with task management actions.
-
-    Args:
-        task_id: ID of the task to manage.
-        has_habit: Whether the task is linked to a habit.
-        is_modified: Whether the task differs from its habit template.
-
-    Returns:
-        InlineKeyboardMarkup with delete / edit / reset / back / cancel buttons.
-    """
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text="🗑 Удалить",
-        callback_data=f"task:delete:{task_id}",
-    )
-    builder.button(
-        text="✏️ Редактировать",
-        callback_data=f"task:edit:{task_id}",
-    )
-    if has_habit and is_modified:
-        builder.button(
-            text="🔄 Сбросить к привычке",
-            callback_data=f"task:reset:{task_id}",
-        )
-    builder.button(text="🔙 Назад", callback_data="nav:back")
-    builder.button(text="❌ Отмена", callback_data="nav:cancel")
-    row_spec = [1, 1]
-    if has_habit and is_modified:
-        row_spec.append(1)
-    row_spec.append(2)
-    builder.adjust(*row_spec)
-    return builder.as_markup()
-
-
 # ---------------------------------------------------------------------------
 # Edit task field selection keyboard
 # ---------------------------------------------------------------------------
@@ -625,27 +586,6 @@ def get_edit_task_field_keyboard(
         row_spec.append(1)  # toggle button row
     row_spec.extend([1, 1, 1, 1, 1])  # 4 fields + cancel
     builder.adjust(*row_spec)
-    return builder.as_markup()
-
-
-# ---------------------------------------------------------------------------
-# Confirm task changes keyboard
-# ---------------------------------------------------------------------------
-
-
-def get_task_confirm_changes_keyboard() -> InlineKeyboardMarkup:
-    """Build an inline keyboard for confirming task edit changes.
-
-    Returns:
-        InlineKeyboardMarkup with confirm / cancel buttons.
-    """
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text="✅ Подтвердить",
-        callback_data="task:confirm_changes",
-    )
-    builder.button(text="❌ Отмена", callback_data="nav:cancel")
-    builder.adjust(2)
     return builder.as_markup()
 
 
