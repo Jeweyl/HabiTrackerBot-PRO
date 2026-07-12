@@ -1,6 +1,6 @@
 # HabitTrackerBot — Telegram-бот для отслеживания привычек
 
-![CI](https://github.com/your-username/habit-tracker-bot/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Jeweyl/HabiTrackerBot/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)
@@ -76,7 +76,7 @@ docker compose up --build
 # 2. Применение миграций базы данных
 docker compose exec bot alembic upgrade head
 
-# 3. Запуск тестов (17 тестов, SQLite in-memory)
+# 3. Запуск тестов (~80 тестов, SQLite in-memory)
 docker compose exec bot pytest -v
 ```
 
@@ -95,8 +95,8 @@ docker compose exec bot pytest -v
 1. **Клонируйте репозиторий:**
 
    ```bash
-   git clone https://github.com/your-username/habit-tracker-bot.git
-   cd habit-tracker-bot
+   git clone https://github.com/Jeweyl/HabiTrackerBot.git
+   cd HabiTrackerBot
    ```
 
 2. **Создайте файл `.env` из примера:**
@@ -195,7 +195,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 **Проблема:** Бот с AI, FSM и сложной логикой конфликтов нуждается в надёжных тестах, но поднимать PostgreSQL для тестов — медленно и неудобно.
 
 **Решение:**
-- **17 тестов** покрывают модели, обработчики и сервисы (включая асинхронные)
+- **~80 тестов** покрывают модели, обработчики и сервисы (включая асинхронные)
 - **In-memory SQLite** — тесты используют SQLite в памяти, что делает их быстрыми и изолированными (реальная PostgreSQL не требуется)
 - **GitHub Actions CI** — автоматический запуск Ruff, Black и pytest при каждом пуше в `main` и `dev` и при pull request
 
@@ -211,7 +211,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 - 🧠 **Интегрировал OpenRouter API** и реализовал многоуровневую обработку невалидных ответов: таймауты, fallback-модель, graceful degradation
 - ⏰ **Разработал систему проверки конфликтов** временных слотов с учётом пересечения по времени и дням недели
 - 🎯 **Реализовал динамическую фильтрацию** кнопок времени — UX-решение, которое предотвращает невалидный ввод на уровне интерфейса
-- 🧪 **Написал 17 тестов** (включая асинхронные) с использованием in-memory SQLite для изоляции и скорости
+- 🧪 **Написал ~80 тестов** (включая асинхронные) с использованием in-memory SQLite для изоляции и скорости
 - 🐳 **Настроил Docker-контейнеризацию** и CI/CD через GitHub Actions с автоматическим линтингом и тестами
 
 ---
@@ -219,7 +219,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 ## Запуск тестов
 
 ```bash
-# Все тесты (17 штук)
+# Все тесты (~80 штук)
 docker compose exec bot pytest
 
 # С подробным выводом
@@ -255,6 +255,7 @@ docker compose exec bot pytest tests/test_db.py
 │   │   └── session.py            # Подключение к БД (async)
 │   ├── handlers/
 │   │   ├── __init__.py
+│   │   ├── admin.py              # Админ-команды (/admin)
 │   │   ├── ai_assistant.py       # AI-мастер создания привычек (OpenRouter)
 │   │   ├── common.py             # Общие обработчики (навигация, /start)
 │   │   ├── habits.py             # Создание, список, редактирование привычек
@@ -268,7 +269,9 @@ docker compose exec bot pytest tests/test_db.py
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── ai_service.py          # Интеграция с OpenRouter API
-│   │   └── habit_generator.py     # Ленивая генерация задач из привычек
+│   │   ├── habit_generator.py     # Ленивая генерация задач из привычек
+│   │   └── reminder_service.py    # Фоновые уведомления по reminder_time
+
 │   ├── states/
 │   │   ├── __init__.py
 │   │   └── fsm.py                # Состояния FSM (Finite State Machine)

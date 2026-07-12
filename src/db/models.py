@@ -31,8 +31,12 @@ class User(Base):
     Attributes:
         id: Primary key, auto-incremented integer.
         telegram_id: Unique Telegram user identifier.
+        username: Telegram @username without the leading ``@`` (optional).
         language: User's preferred language (default 'ru').
         timezone: User's timezone string (default 'UTC').
+        reminder_time: Preferred daily reminder time (optional).
+        check_interval: Reminder check interval in minutes.
+        last_reminder_date: Local date when the last reminder was sent.
         created_at: Timestamp of record creation.
         updated_at: Timestamp of last update.
     """
@@ -43,6 +47,7 @@ class User(Base):
     telegram_id: Mapped[int] = mapped_column(
         BigInteger, unique=True, nullable=False, index=True
     )
+    username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     language: Mapped[str] = mapped_column(String(10), default="ru", server_default="ru")
     timezone: Mapped[str] = mapped_column(
         String(50), default="UTC", server_default="UTC"
@@ -53,6 +58,10 @@ class User(Base):
     check_interval: Mapped[int] = mapped_column(
         Integer, default=15, server_default="15"
     )
+    last_reminder_date: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True, default=None
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

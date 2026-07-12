@@ -586,9 +586,17 @@ async def process_confirmation(callback: CallbackQuery, state: FSMContext) -> No
             user = result.scalar_one_or_none()
 
             if user is None:
-                user = User(telegram_id=telegram_id, language="ru", timezone="UTC")
+                user = User(
+                    telegram_id=telegram_id,
+                    username=callback.from_user.username,
+                    language="ru",
+                    timezone="UTC",
+                )
                 session.add(user)
                 await session.flush()
+            elif callback.from_user.username and user.username != callback.from_user.username:
+                user.username = callback.from_user.username
+
 
             # Create habit
             habit = Habit(

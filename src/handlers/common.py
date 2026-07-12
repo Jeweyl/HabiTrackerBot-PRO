@@ -51,6 +51,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         state: FSM context for the current user.
     """
     telegram_id = message.from_user.id
+    username = message.from_user.username
 
     async with get_db() as session:
         stmt = select(User).where(User.telegram_id == telegram_id)
@@ -58,15 +59,21 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         user = result.scalar_one_or_none()
 
         if user is None:
-            user = User(telegram_id=telegram_id, language="ru", timezone="UTC")
+            user = User(
+                telegram_id=telegram_id,
+                username=username,
+                language="ru",
+                timezone="UTC",
+            )
             session.add(user)
             await session.commit()
             logger.info("Created new user with telegram_id=%d", telegram_id)
         else:
-            # Touch updated_at via the model's onupdate hook
-            user.updated_at = user.updated_at  # triggers onupdate
+            # Keep username in sync and touch updated_at
+            user.username = username
             await session.commit()
             logger.info("Updated existing user with telegram_id=%d", telegram_id)
+
 
     await state.set_state(MainFSM.main_menu)
 

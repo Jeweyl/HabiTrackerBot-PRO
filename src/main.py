@@ -4,15 +4,20 @@ import asyncio
 import logging
 import signal
 
-from src.bot import bot, dp
+from src.bot import bot, dp, redis
+from src.handlers.admin import router as admin_router
 from src.handlers.ai_assistant import router as ai_assistant_router
 from src.handlers.common import router as common_router
 from src.handlers.habits import router as habits_router
 from src.handlers.settings import router as settings_router
 from src.handlers.statistics import router as statistics_router
 from src.handlers.tasks import router as tasks_router
+from src.services.reminder_service import process_reminders
 
 logger = logging.getLogger(__name__)
+
+REMINDER_POLL_SECONDS = 60
+"""How often the reminder loop checks for due notifications."""
 
 
 def _setup_logging() -> None:
@@ -23,17 +28,33 @@ def _setup_logging() -> None:
     )
 
 
+async def _reminder_loop(stop_event: asyncio.Event) -> None:
+    """Periodically send due reminders until *stop_event* is set."""
+    logger.info("Reminder loop started (interval=%ss)", REMINDER_POLL_SECONDS)
+    while not stop_event.is_set():
+        try:
+            await process_reminders(bot)
+        except Exception:
+            logger.exception("Reminder loop iteration failed")
+
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=REMINDER_POLL_SECONDS)
+        except asyncio.TimeoutError:
+            continue
+
+
 async def main() -> None:
     """Start the bot with polling and handle OS signals for graceful shutdown.
 
     Steps:
         1. Configure logging.
         2. Register handler routers on the dispatcher.
-        3. Start polling in a background task.
-        4. Wait for SIGINT or SIGTERM, then stop polling and close the bot session.
+        3. Start polling and the reminder loop in background tasks.
+        4. Wait for SIGINT or SIGTERM, then stop tasks and close sessions.
     """
     _setup_logging()
 
+    dp.include_router(admin_router)
     dp.include_router(tasks_router)  # Must be before habits_router for priority
     dp.include_router(habits_router)  # Must be before settings for priority
     dp.include_router(settings_router)  # Must be before statistics for priority
@@ -57,6 +78,7 @@ async def main() -> None:
             signal.signal(sig, lambda *_: _signal_handler())
 
     polling_task = asyncio.create_task(dp.start_polling(bot))
+    reminder_task = asyncio.create_task(_reminder_loop(stop_event))
 
     await stop_event.wait()
 
@@ -66,7 +88,13 @@ async def main() -> None:
     except asyncio.CancelledError:
         pass
 
+    try:
+        await reminder_task
+    except asyncio.CancelledError:
+        pass
+
     await bot.session.close()
+    await redis.aclose()
     logger.info("Bot stopped.")
 
 
