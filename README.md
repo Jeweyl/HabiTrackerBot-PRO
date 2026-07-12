@@ -139,21 +139,43 @@ docker compose -f docker-compose.prod.yml up -d --build
    - `New` → `Database` → **PostgreSQL**
    - `New` → `Database` → **Redis**
 
-2. **Задайте переменные окружения** (вкладка Variables):
-   - `BOT_TOKEN` — токен от @BotFather
-   - `DATABASE_URL` — **автоматически** от Railway (PostgreSQL)
-   - `REDIS_URL` — **автоматически** от Railway (Redis)
-   - `ADMIN_ID` — ваш Telegram ID
-   - `ROUTER_API_KEY` — API-ключ OpenRouter
-   - `AI_MODEL` — `deepseek/deepseek-v4-flash`
-   - `AI_FALLBACK_MODEL` — `meta-llama/llama-3.1-8b-instruct`
+2. **Создайте сервис** из репозитория:
+   - `New` → `GitHub Repo` → выберите репозиторий
+   - Railway автоматически обнаружит `Dockerfile`
 
-3. **Запустите миграции** вручную (Railway Shell):
+3. **Задайте переменные окружения** (Service → Variables):
+
+   | Переменная | Значение |
+   |------------|----------|
+   | `BOT_TOKEN` | Токен от @BotFather **без кавычек и пробелов** |
+   | `DATABASE_URL` | Reference: `${{Postgres.DATABASE_URL}}` |
+   | `REDIS_URL` | Reference: `${{Redis.REDIS_URL}}` |
+   | `ADMIN_ID` | Ваш Telegram ID |
+   | `ROUTER_API_KEY` | API-ключ OpenRouter |
+   | `AI_MODEL` | `deepseek/deepseek-v4-flash` |
+   | `AI_FALLBACK_MODEL` | `meta-llama/llama-3.1-8b-instruct` |
+
+   > **Важно:** `DATABASE_URL` и `REDIS_URL` должны быть ссылками (Reference)
+   > на плагины Railway, а не захардкоженными значениями вроде
+   > `redis://redis:6379/0` — это работает только в docker-compose.
+   >
+   > `postgresql://` автоматически конвертируется в `postgresql+asyncpg://`
+   > в коде — вручную менять схему не нужно.
+
+4. **Проверьте переменные** в Railway Shell:
+   ```bash
+   python -c "import os; print(repr(os.environ.get('BOT_TOKEN','')))"
+   ```
+   Убедитесь, что нет пробелов, переносов строк или кавычек в значении.
+
+5. **Миграции** — выполняются **автоматически** при старте контейнера
+   (через `alembic upgrade head` в `Dockerfile`).
+   При необходимости можно запустить вручную в Railway Shell:
    ```bash
    alembic upgrade head
    ```
 
-4. **Задеплойте** — Railway подхватит Dockerfile автоматически.
+6. **Redeploy** — после изменения Variables нажмите `Redeploy`.
 
 
 ---

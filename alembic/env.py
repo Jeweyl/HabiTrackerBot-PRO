@@ -21,13 +21,19 @@ target_metadata = Base.metadata
 
 
 def _get_database_url() -> str:
-    """Return DATABASE_URL from environment, raising a clear error if missing."""
-    url = os.getenv("DATABASE_URL", "")
+    """Return DATABASE_URL from environment, raising a clear error if missing.
+
+    Auto-converts ``postgresql://`` to ``postgresql+asyncpg://`` for
+    compatibility with SQLAlchemy async engine (Railway provides the former).
+    """
+    url = os.getenv("DATABASE_URL", "").strip()
     if not url:
         raise RuntimeError(
             "DATABASE_URL environment variable is not set. "
             "Set it before running migrations."
         )
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
     return url
 
 
