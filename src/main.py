@@ -15,9 +15,10 @@ from src.handlers.habits import router as habits_router
 from src.handlers.settings import router as settings_router
 from src.handlers.statistics import router as statistics_router
 from src.handlers.tasks import router as tasks_router
-
+from src.middlewares.activity import UserActivityMiddleware
 from src.services.checkin_service import process_checkins
 from src.services.reminder_service import process_reminders
+
 
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,13 @@ async def main() -> None:
     """
     _setup_logging()
 
+    # Keep username/name/last-seen in sync on every message and callback.
+    activity_mw = UserActivityMiddleware()
+    dp.message.middleware(activity_mw)
+    dp.callback_query.middleware(activity_mw)
+
     dp.include_router(admin_router)
+
     dp.include_router(checkin_router)  # Check-in yes/no callbacks
     dp.include_router(tasks_router)  # Must be before habits_router for priority
     dp.include_router(habits_router)  # Must be before settings for priority

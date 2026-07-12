@@ -111,6 +111,17 @@ cp .env.prod.example .env.prod
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
+### Railway (bot + API + WEB)
+
+Step-by-step Variant B (public API URL + CORS, separate WEB repo):  
+**[docs/RAILWAY.md](docs/RAILWAY.md)**
+
+| Service | Start / notes |
+|---------|----------------|
+| bot | Dockerfile default |
+| api | `uvicorn src.api.app:app --host 0.0.0.0 --port $PORT` |
+| web | HabiTrackerBOT-WEB Dockerfile; build `VITE_API_BASE_URL` |
+
 ---
 
 ## Architecture notes

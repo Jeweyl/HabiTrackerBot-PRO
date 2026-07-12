@@ -1,6 +1,8 @@
 """Admin-only handlers for bot statistics and user listing."""
 
+import html
 import logging
+from datetime import datetime, timezone
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -22,15 +24,52 @@ def _is_admin(telegram_id: int) -> bool:
     return telegram_id == settings.ADMIN_ID
 
 
+def _display_name(user: User) -> str:
+    """Build a human-readable display name from first/last name."""
+    parts = [p for p in (user.first_name, user.last_name) if p]
+    if not parts:
+        return "—"
+    return " ".join(parts)
+
+
+def _format_last_seen(user: User) -> str:
+    """Format last activity time (``updated_at``) for the admin list.
+
+    Uses UTC wall-clock time. Falls back to ``created_at`` if needed.
+    """
+    ts = user.updated_at or user.created_at
+    if ts is None:
+        return "—"
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    else:
+        ts = ts.astimezone(timezone.utc)
+    return ts.strftime("%Y-%m-%d %H:%M UTC")
+
+
 def _format_user_line(user: User) -> str:
-    """Format a single user row for the admin report."""
+    """Format a single user row for the admin report (HTML).
+
+    Shows telegram id, @username (or —), display name, last activity,
+    and a deep-link that may open the profile when the client knows the user.
+    """
     username = f"@{user.username}" if user.username else "—"
-    return f"• `{user.telegram_id}` — {username}"
+    name = _display_name(user)
+    last_seen = _format_last_seen(user)
+    # Escape user-controlled text for HTML parse mode.
+    safe_username = html.escape(username)
+    safe_name = html.escape(name)
+    safe_last_seen = html.escape(last_seen)
+    link = f'<a href="tg://user?id={user.telegram_id}">открыть</a>'
+    return (
+        f"• <code>{user.telegram_id}</code> — {safe_username} "
+        f"({safe_name}) · {safe_last_seen} {link}"
+    )
 
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message) -> None:
-    """Show total users and a list of telegram IDs with usernames.
+    """Show total users and a list of telegram IDs with usernames/names.
 
     Access is restricted to ``settings.ADMIN_ID``.
     """
@@ -41,7 +80,7 @@ async def cmd_admin(message: Message) -> None:
     async with get_db() as session:
         total = await session.scalar(select(func.count()).select_from(User))
         result = await session.execute(
-            select(User).order_by(User.created_at.desc(), User.id.desc())
+            select(User).order_by(User.updated_at.desc(), User.id.desc())
         )
         users = result.scalars().all()
 
@@ -50,10 +89,13 @@ async def cmd_admin(message: Message) -> None:
         return
 
     lines = [
-        "👑 *Админ-панель*",
-        f"Всего пользователей: *{total}*",
+        "👑 <b>Админ-панель</b>",
+        f"Всего пользователей: <b>{total}</b>",
         "",
-        "Список:",
+        "Список (id — @ник (имя) · последняя активность):",
+        "<i>Ссылка tg://user открывает профиль не всегда — "
+        "только если Telegram уже знает этого пользователя.</i>",
+        "",
     ]
     lines.extend(_format_user_line(user) for user in users)
 
@@ -63,7 +105,7 @@ async def cmd_admin(message: Message) -> None:
     for line in lines:
         line_len = len(line) + 1
         if chunk and chunk_len + line_len > 3500:
-            await message.answer("\n".join(chunk), parse_mode="Markdown")
+            await message.answer("\n".join(chunk), parse_mode="HTML")
             chunk = [line]
             chunk_len = line_len
         else:
@@ -71,7 +113,7 @@ async def cmd_admin(message: Message) -> None:
             chunk_len += line_len
 
     if chunk:
-        await message.answer("\n".join(chunk), parse_mode="Markdown")
+        await message.answer("\n".join(chunk), parse_mode="HTML")
 
     logger.info(
         "Admin %s requested user list (%s users)",

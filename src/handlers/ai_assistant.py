@@ -806,6 +806,8 @@ async def _ensure_user_for_apply(
     session,
     telegram_id: int,
     username: str | None,
+    first_name: str | None = None,
+    last_name: str | None = None,
 ) -> User:
     """Load or create the User row for AI apply (flush only, no commit)."""
     stmt = select(User).where(User.telegram_id == telegram_id)
@@ -815,14 +817,22 @@ async def _ensure_user_for_apply(
         user = User(
             telegram_id=telegram_id,
             username=username,
+            first_name=first_name,
+            last_name=last_name,
             language="ru",
             timezone="UTC",
         )
         session.add(user)
         await session.flush()
-    elif username and user.username != username:
-        user.username = username
+    else:
+        if username and user.username != username:
+            user.username = username
+        if first_name is not None and user.first_name != first_name:
+            user.first_name = first_name
+        if last_name is not None and user.last_name != last_name:
+            user.last_name = last_name
     return user
+
 
 
 async def _apply_confirmed_plan(
@@ -853,7 +863,10 @@ async def _apply_confirmed_plan(
                 session,
                 telegram_id,
                 callback.from_user.username,
+                first_name=callback.from_user.first_name,
+                last_name=callback.from_user.last_name,
             )
+
             result = await apply_propose_plan(
                 session,
                 user,

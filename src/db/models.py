@@ -32,6 +32,8 @@ class User(Base):
         id: Primary key, auto-incremented integer.
         telegram_id: Unique Telegram user identifier.
         username: Telegram @username without the leading ``@`` (optional).
+        first_name: Telegram first name (optional, almost always present).
+        last_name: Telegram last name (optional).
         language: User's preferred language (default 'ru').
         timezone: User's timezone string (default 'UTC').
         reminder_time: Preferred daily reminder time (optional).
@@ -48,7 +50,10 @@ class User(Base):
         BigInteger, unique=True, nullable=False, index=True
     )
     username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    first_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     language: Mapped[str] = mapped_column(String(10), default="ru", server_default="ru")
+
     timezone: Mapped[str] = mapped_column(
         String(50), default="UTC", server_default="UTC"
     )

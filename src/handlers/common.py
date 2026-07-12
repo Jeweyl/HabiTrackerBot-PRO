@@ -119,6 +119,8 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     """
     telegram_id = message.from_user.id
     username = message.from_user.username
+    first_name = message.from_user.first_name
+    last_name = message.from_user.last_name
     lang = "ru"
 
     async with get_db() as session:
@@ -130,6 +132,8 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             user = User(
                 telegram_id=telegram_id,
                 username=username,
+                first_name=first_name,
+                last_name=last_name,
                 language="ru",
                 timezone="UTC",
             )
@@ -138,11 +142,14 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             logger.info("Created new user with telegram_id=%d", telegram_id)
             lang = "ru"
         else:
-            # Keep username in sync and touch updated_at
+            # Keep profile fields in sync and touch updated_at
             user.username = username
+            user.first_name = first_name
+            user.last_name = last_name
             lang = normalize_lang(user.language)
             await session.commit()
             logger.info("Updated existing user with telegram_id=%d", telegram_id)
+
 
     await state.set_state(MainFSM.main_menu)
 
