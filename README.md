@@ -133,6 +133,29 @@ cp .env.prod.example .env.prod
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
+### Развёртывание на Railway
+
+1. **Подключите базы данных** в dashboard Railway:
+   - `New` → `Database` → **PostgreSQL**
+   - `New` → `Database` → **Redis**
+
+2. **Задайте переменные окружения** (вкладка Variables):
+   - `BOT_TOKEN` — токен от @BotFather
+   - `DATABASE_URL` — **автоматически** от Railway (PostgreSQL)
+   - `REDIS_URL` — **автоматически** от Railway (Redis)
+   - `ADMIN_ID` — ваш Telegram ID
+   - `ROUTER_API_KEY` — API-ключ OpenRouter
+   - `AI_MODEL` — `deepseek/deepseek-v4-flash`
+   - `AI_FALLBACK_MODEL` — `meta-llama/llama-3.1-8b-instruct`
+
+3. **Запустите миграции** вручную (Railway Shell):
+   ```bash
+   alembic upgrade head
+   ```
+
+4. **Задеплойте** — Railway подхватит Dockerfile автоматически.
+
+
 ---
 
 ## Переменные окружения
