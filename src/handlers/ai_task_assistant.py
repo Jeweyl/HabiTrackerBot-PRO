@@ -268,12 +268,15 @@ def _task_skip_keyboard(lang: str = "ru"):
     """Skip/back/cancel using ``assist_task:`` namespace (not habit ``assist:``)."""
     from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+    from src.utils.keyboard_width import finalize_markup
+
     builder = InlineKeyboardBuilder()
     builder.button(text=t("task_ai.skip", lang), callback_data="assist_task:skip")
     builder.button(text=t("common.back", lang), callback_data="nav:back")
     builder.button(text=t("common.cancel", lang), callback_data="nav:cancel")
     builder.adjust(1, 2)
-    return builder.as_markup()
+    return finalize_markup(builder)
+
 
 
 def _keyboard_for_question(q: dict[str, Any], lang: str = "ru"):

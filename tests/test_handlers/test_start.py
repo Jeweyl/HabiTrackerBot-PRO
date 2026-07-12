@@ -97,10 +97,13 @@ async def test_start_sends_correct_keyboard(
     keyboard = message.reply_markup.inline_keyboard
     assert len(keyboard) == len(MAIN_MENU_BUTTONS)
 
+    from src.utils.keyboard_width import strip_button_padding
+
     for row, (expected_label, expected_cb) in zip(keyboard, MAIN_MENU_BUTTONS):
         assert len(row) == 1
-        assert row[0].text == expected_label
+        assert strip_button_padding(row[0].text) == expected_label
         assert row[0].callback_data == expected_cb
+
 
 
 def test_start_includes_links_when_configured() -> None:

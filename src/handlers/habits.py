@@ -35,7 +35,9 @@ from src.utils.conflict import (
     _freq_day_overlap,
     check_habit_conflicts,
 )
+from src.utils.keyboard_width import finalize_markup
 from src.utils.time_picker import PENDING_HOUR_KEY, parse_time_callback
+
 
 
 logger = logging.getLogger(__name__)
@@ -115,7 +117,8 @@ async def _show_habit_list(
     builder.button(text="🔄 Интерактировать", callback_data="habits:interact")
     builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
     builder.adjust(2)
-    await target.edit_text("\n".join(lines), reply_markup=builder.as_markup())
+    await target.edit_text("\n".join(lines), reply_markup=finalize_markup(builder))
+
 
 
 def _build_habit_conflict_message(
@@ -490,7 +493,10 @@ async def show_interact_menu(callback: CallbackQuery, state: FSMContext) -> None
     builder.adjust(*(1 for _ in habits), 2)
 
     await state.set_state(HabitFSM.interact_list)
-    await callback.message.edit_text("\n".join(lines), reply_markup=builder.as_markup())
+    await callback.message.edit_text(
+        "\n".join(lines), reply_markup=finalize_markup(builder)
+    )
+
 
 
 async def _show_manage_menu(
@@ -535,7 +541,10 @@ async def _show_manage_menu(
 
     await state.update_data(manage_habit_id=habit_id, manage_habit_title=habit_title)
     await state.set_state(HabitFSM.manage_single)
-    await callback.message.edit_text("\n".join(lines), reply_markup=builder.as_markup())
+    await callback.message.edit_text(
+        "\n".join(lines), reply_markup=finalize_markup(builder)
+    )
+
 
 
 @router.callback_query(F.data.startswith("habit:select:"))

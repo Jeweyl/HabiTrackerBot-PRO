@@ -7,6 +7,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.i18n import t
+from src.utils.keyboard_width import finalize_markup
 
 # callback_data values are stable; labels come from i18n.
 _MAIN_MENU_CALLBACKS: list[tuple[str, str]] = [
@@ -45,7 +46,7 @@ def get_main_menu_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     for label, callback_data in get_main_menu_buttons(lang):
         builder.button(text=label, callback_data=callback_data)
     builder.adjust(1)  # One button per row
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 
@@ -115,7 +116,7 @@ def get_hour_selection_keyboard(
             builder.adjust(1, 1, 2)
         else:
             builder.adjust(1, 2)
-        return builder.as_markup()
+        return finalize_markup(builder)
 
     # Pad to a multiple of 4
     remainder = real_count % 4
@@ -134,7 +135,7 @@ def get_hour_selection_keyboard(
         rows.append(1)
     rows.append(2)
     builder.adjust(*rows)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_minute_selection_keyboard(
@@ -178,7 +179,7 @@ def get_minute_selection_keyboard(
             builder.adjust(1, 1, 2)
         else:
             builder.adjust(1, 2)
-        return builder.as_markup()
+        return finalize_markup(builder)
 
     if show_null_option:
         builder.button(text="⏳ Без времени", callback_data="time:null")
@@ -190,7 +191,7 @@ def get_minute_selection_keyboard(
         rows.append(1)
     rows.append(2)
     builder.adjust(*rows)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 
@@ -221,7 +222,7 @@ def get_frequency_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 2)  # 3 frequency rows + 1 nav row
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +243,7 @@ def get_edit_field_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="📅 Частота", callback_data="edit_field:frequency")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +269,7 @@ def get_delete_confirmation_keyboard(
     )
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(2)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +368,7 @@ def get_month_calendar_keyboard(
     # Adjust: 1 (header) + 7 (weekdays) + N*7 (days) + 3 (nav)
     num_weeks = len(weeks)
     builder.adjust(1, 7, *([7] * num_weeks), 3)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +394,7 @@ def get_day_keyboard(selected_date: date) -> InlineKeyboardMarkup:
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_new_task_choice_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
@@ -416,7 +417,7 @@ def get_new_task_choice_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     )
     builder.button(text=t("common.back", lang), callback_data="nav:back")
     builder.adjust(1, 1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_ai_task_fallback_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
@@ -435,7 +436,7 @@ def get_ai_task_fallback_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     )
     builder.button(text=t("common.back", lang), callback_data="nav:back")
     builder.adjust(1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_ai_task_choice_keyboard(
@@ -460,7 +461,7 @@ def get_ai_task_choice_keyboard(
     builder.button(text=t("common.cancel", lang), callback_data="nav:cancel")
     rows = [1] * len(options) + [1, 2]
     builder.adjust(*rows)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_ai_task_plan_confirm_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
@@ -477,7 +478,7 @@ def get_ai_task_plan_confirm_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     builder.button(text=t("task_ai.no", lang), callback_data="assist_task:no")
     builder.button(text=t("common.cancel", lang), callback_data="nav:cancel")
     builder.adjust(2, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 
@@ -498,7 +499,7 @@ def get_task_confirm_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -536,7 +537,7 @@ def get_tasks_completion_keyboard(
         builder.button(text=label, callback_data=f"task:toggle:{task.id}")
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.adjust(1)  # one button per row
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -569,7 +570,7 @@ def get_schedule_management_keyboard(
         builder.button(text=label, callback_data=f"task:manage:{task.id}")
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.adjust(1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -590,7 +591,7 @@ def get_simple_schedule_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
     builder.adjust(2)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -620,7 +621,7 @@ def get_conflict_resolution_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 2)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -646,7 +647,7 @@ def get_task_delete_confirmation_keyboard(
     )
     builder.button(text="❌ Отмена", callback_data="nav:back")
     builder.adjust(2)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -706,7 +707,7 @@ def get_task_action_keyboard(
         row_spec.append(1)
     row_spec.append(2)
     builder.adjust(*row_spec)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -753,7 +754,7 @@ def get_edit_task_field_keyboard(
         row_spec.append(1)  # toggle button row
     row_spec.extend([1, 1, 1, 1, 1])  # 4 fields + cancel
     builder.adjust(*row_spec)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -771,7 +772,7 @@ def get_cancel_input_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="❌ Отмена", callback_data="input:cancel")
     builder.button(text="🏠 В главное меню", callback_data="input:goto_main")
     builder.adjust(2)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -797,7 +798,7 @@ def get_new_habit_choice_keyboard() -> InlineKeyboardMarkup:
     )
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.adjust(1, 1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -820,7 +821,7 @@ def get_ai_fallback_keyboard() -> InlineKeyboardMarkup:
     )
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.adjust(1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_ai_choice_keyboard(options: list[str]) -> InlineKeyboardMarkup:
@@ -843,7 +844,7 @@ def get_ai_choice_keyboard(options: list[str]) -> InlineKeyboardMarkup:
     # One option per row, then skip, then back+cancel
     rows = [1] * len(options) + [1, 2]
     builder.adjust(*rows)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_ai_plan_confirm_keyboard() -> InlineKeyboardMarkup:
@@ -857,7 +858,7 @@ def get_ai_plan_confirm_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="❌ Нет", callback_data="assist:no")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(2, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -879,7 +880,7 @@ def get_sport_intensity_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 1, 2)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_sport_duration_keyboard() -> InlineKeyboardMarkup:
@@ -897,7 +898,7 @@ def get_sport_duration_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 1, 1, 2)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_hygiene_time_keyboard() -> InlineKeyboardMarkup:
@@ -914,7 +915,7 @@ def get_hygiene_time_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 1, 2)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_generic_frequency_keyboard() -> InlineKeyboardMarkup:
@@ -940,7 +941,7 @@ def get_generic_frequency_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 1, 1, 1, 2)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_skip_only_keyboard() -> InlineKeyboardMarkup:
@@ -954,7 +955,7 @@ def get_skip_only_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
     builder.adjust(1, 2)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # ---------------------------------------------------------------------------
@@ -1001,7 +1002,7 @@ def get_habit_conflict_resolution_keyboard(
         row_spec.append(1)
     row_spec.extend([1, 1])
     builder.adjust(*row_spec)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 # =============================================================================
@@ -1042,7 +1043,7 @@ def get_settings_menu_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
         callback_data="nav:cancel",
     )
     builder.adjust(1, 1, 1, 1, 1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_language_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
@@ -1067,7 +1068,7 @@ def get_language_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
         callback_data="nav:cancel",
     )
     builder.adjust(2, 1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_timezone_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
@@ -1117,7 +1118,7 @@ def get_timezone_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
         callback_data="nav:cancel",
     )
     builder.adjust(4, 4, 4, 4, 4, 4, 3, 1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_reminder_time_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
@@ -1145,7 +1146,7 @@ def get_reminder_time_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
         callback_data="nav:cancel",
     )
     builder.adjust(6, 6, 6, 6, 1, 1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_check_interval_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
@@ -1170,7 +1171,7 @@ def get_check_interval_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
         callback_data="nav:cancel",
     )
     builder.adjust(2, 2, 2, 1, 1, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 
@@ -1209,7 +1210,7 @@ def get_checkin_keyboard(task_id: int, lang: str = "ru") -> InlineKeyboardMarkup
         callback_data=f"checkin:reschedule:{task_id}",
     )
     builder.adjust(1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_checkin_snooze_keyboard(
@@ -1236,7 +1237,7 @@ def get_checkin_snooze_keyboard(
         callback_data=f"checkin:back:{task_id}",
     )
     builder.adjust(2, 2, 1)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 def get_checkin_reschedule_keyboard(
@@ -1277,7 +1278,7 @@ def get_checkin_reschedule_keyboard(
             rows.append(n % 4)
         rows.append(1)
         builder.adjust(*rows)
-    return builder.as_markup()
+    return finalize_markup(builder)
 
 
 

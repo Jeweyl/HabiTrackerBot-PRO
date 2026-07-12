@@ -13,7 +13,9 @@ from aiogram.types import CallbackQuery, Chat, Message, Update, User as TgUser
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Task, User
+from src.utils.keyboard_width import strip_button_padding
 from tests.conftest import MockTelegramSession
+
 
 
 # ---------------------------------------------------------------------------
@@ -220,9 +222,10 @@ async def test_calendar_day_selection(client) -> None:
     assert msg.reply_markup is not None
     # Check buttons exist (keyboard is not just text)
     assert any(
-        btn.text == "📅 Добавить задачу"
+        strip_button_padding(btn.text or "") == "📅 Добавить задачу"
         for row in msg.reply_markup.inline_keyboard
         for btn in row
+
     )
 
 
@@ -678,7 +681,10 @@ async def test_complete_tasks_mode_with_tasks(client, async_session) -> None:
     assert len(toggle_cbs) == 2
 
     # Verify button texts have status icons
-    all_texts = {btn.text for row in keyboard for btn in row}
+    all_texts = {
+        strip_button_padding(btn.text or "") for row in keyboard for btn in row
+    }
+
     for button_text in all_texts:
         if "Задача" in button_text:
             assert "⬜" in button_text, f"Expected ⬜ icon in '{button_text}'"
@@ -833,7 +839,12 @@ async def test_task_management_menu(client, async_session) -> None:
     all_cb = {
         btn.callback_data for row in msg.reply_markup.inline_keyboard for btn in row
     }
-    all_texts = {btn.text for row in msg.reply_markup.inline_keyboard for btn in row}
+    all_texts = {
+        strip_button_padding(btn.text or "")
+        for row in msg.reply_markup.inline_keyboard
+        for btn in row
+    }
+
     assert f"task:toggle:{task.id}" in all_cb
     assert "✅ Отметить выполненным" in all_texts
     assert f"task:delete:{task.id}" in all_cb
@@ -1293,7 +1304,7 @@ async def test_toggle_from_action_menu(client, async_session) -> None:
         message_text="Управление задачей",
     )
     # Verify keyboard updated — toggle button now shows "Отметить невыполненным"
-    all_texts = {btn.text for row in msg.reply_markup.inline_keyboard for btn in row}
+    all_texts = {strip_button_padding(btn.text or '') for row in msg.reply_markup.inline_keyboard for btn in row}
     assert "❌ Отметить невыполненным" in all_texts
 
     # Verify DB change
@@ -1335,7 +1346,7 @@ async def test_toggle_from_edit_menu(client, async_session) -> None:
         message_text="Что вы хотите изменить",
     )
     # Verify keyboard updated — toggle button now shows "Отметить невыполненным"
-    all_texts = {btn.text for row in msg.reply_markup.inline_keyboard for btn in row}
+    all_texts = {strip_button_padding(btn.text or '') for row in msg.reply_markup.inline_keyboard for btn in row}
     assert "❌ Отметить невыполненным" in all_texts
     # Edit field buttons should still be present
     assert "📝 Название" in all_texts

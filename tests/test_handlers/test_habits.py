@@ -16,6 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Habit, User
+from src.utils.keyboard_width import strip_button_padding
+
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -486,11 +488,14 @@ async def test_interact_menu_shows_habit_buttons(
         assert "nav:cancel" in all_cb
 
         # Verify button labels match habit titles
-        all_labels = {btn.text for row in keyboard for btn in row}
+        all_labels = {
+            strip_button_padding(btn.text or "") for row in keyboard for btn in row
+        }
         assert "Бег" in all_labels
         assert "Чтение" in all_labels
         assert "⬅️ Назад" in all_labels
         assert "❌ Отмена" in all_labels
+
 
 
 @pytest.mark.asyncio
@@ -574,7 +579,10 @@ async def test_back_from_manage_to_interact(
         keyboard = msg.reply_markup.inline_keyboard
         all_cb = {btn.callback_data for row in keyboard for btn in row}
         assert f"habit:select:{habit.id}" in all_cb
-        assert "⬅️ Назад" in {btn.text for row in keyboard for btn in row}
+        assert "⬅️ Назад" in {
+            strip_button_padding(btn.text or "") for row in keyboard for btn in row
+        }
+
 
 
 # ===================================================================

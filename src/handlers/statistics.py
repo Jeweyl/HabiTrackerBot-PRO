@@ -13,6 +13,8 @@ from src.db.models import Habit, Task, User
 from src.db.session import get_db
 from src.i18n import normalize_lang, t
 from src.services.dashboard_link import issue_dashboard_link
+from src.utils.keyboard_width import finalize_markup
+
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +96,8 @@ def _stats_keyboard(
             callback_data="nav:cancel",
         )
     )
-    return builder.as_markup()
+    return finalize_markup(builder)
+
 
 
 @router.callback_query(F.data == "main_menu:statistics")

@@ -31,7 +31,14 @@ def _callbacks(markup) -> set[str]:
 
 
 def _labels(markup) -> set[str]:
-    return {btn.text for row in markup.inline_keyboard for btn in row}
+    from src.utils.keyboard_width import strip_button_padding
+
+    return {
+        strip_button_padding(btn.text or "")
+        for row in markup.inline_keyboard
+        for btn in row
+    }
+
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,8 @@ from src.keyboards.inline import (
     get_new_habit_choice_keyboard,
 )
 from src.states.fsm import MainFSM
+from src.utils.keyboard_width import finalize_markup
+
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +194,8 @@ async def handle_main_menu_help(callback: CallbackQuery, state: FSMContext) -> N
 
     builder = InlineKeyboardBuilder()
     builder.button(text=t("common.back", lang), callback_data="nav:cancel")
-    keyboard = builder.as_markup()
+    keyboard = finalize_markup(builder)
+
 
     await callback.message.edit_text(
         t("help.text", lang),
