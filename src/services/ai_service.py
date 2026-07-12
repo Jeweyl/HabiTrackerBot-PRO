@@ -1,12 +1,20 @@
 """Asynchronous service for communicating with the OpenRouter API."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
+from typing import Any
 
 import aiohttp
 
 from src.config import settings
+from src.services.ai_schema import (
+    AskQuestions,
+    ProposePlan,
+    parse_ai_response,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -184,3 +192,88 @@ def build_prompt(habit_title: str, answers: dict) -> str:
     )
 
     return prompt
+
+
+def build_prompt_v2(habit_title: str, answers: dict) -> str:
+    """Build a v2 prompt that requests the strict AIResponse JSON contract.
+
+    The model must return **only** one of two JSON objects (no markdown, no
+    prose outside JSON):
+
+    * ``{"type":"ask_questions","questions":[...],"context":...}``
+    * ``{"type":"propose_plan","title":...,"start_time":"HH:MM",...}``
+
+    Time rules (enforced by the server-side parser as well):
+    * minutes only ``:00`` / ``:15`` / ``:30`` / ``:45``
+    * if both ``start_time`` and ``end_time`` and ``duration_minutes`` are set,
+      ``duration_minutes`` must equal ``end - start`` (same day)
+    * ``frequency`` ∈ ``daily`` | ``weekdays`` | ``weekends``
+
+    Args:
+        habit_title: The habit title entered by the user.
+        answers: Adaptive question answers; missing/``None``/skipped values
+            are omitted from the prompt text.
+
+    Returns:
+        A formatted prompt string ready for ``send_to_ai`` /
+        ``send_to_ai_parsed``.
+    """
+    answers_parts: list[str] = []
+    for key, value in answers.items():
+        if value and value != "Пропущено":
+            answers_parts.append(f"{key}: {value}")
+
+    answers_text = (
+        "; ".join(answers_parts) if answers_parts else "No additional details provided"
+    )
+
+    prompt = (
+        "You are a habit coach. The user wants to develop the habit: "
+        f"'{habit_title}'. "
+        f"They mentioned: {answers_text}. "
+        "Respond with ONLY a single valid JSON object (no markdown fences, "
+        "no commentary) matching exactly one of these shapes:\n"
+        "1) Ask clarifying questions:\n"
+        '{"type":"ask_questions","questions":["..."],"context":"optional"}\n'
+        "2) Propose a concrete plan:\n"
+        '{"type":"propose_plan","title":"...","start_time":"HH:MM",'
+        '"end_time":"HH:MM"|null,"frequency":"daily"|"weekdays"|"weekends"|null,'
+        '"duration_minutes":integer|null,"comment":"...",'
+        '"schedule_ops":null|[{"op":"set_schedule","start_time":"HH:MM",'
+        '"end_time":"HH:MM"|null,"frequency":"daily"|"weekdays"|"weekends"|null}]}\n'
+        "Rules:\n"
+        "- Times must be zero-padded HH:MM with minutes in {00,15,30,45}.\n"
+        "- If start_time, end_time and duration_minutes are all set, "
+        "duration_minutes MUST equal (end_time - start_time) in minutes "
+        "on the same calendar day (no overnight ranges).\n"
+        "- duration_minutes, when set, must be a positive multiple of 15.\n"
+        "- frequency must be one of: daily, weekdays, weekends.\n"
+        "- Prefer propose_plan when you have enough information; "
+        "otherwise use ask_questions.\n"
+        "- Do not invent metrics outside this schema."
+    )
+
+    return prompt
+
+
+async def send_to_ai_parsed(
+    prompt: str,
+    model: str | None = None,
+) -> AskQuestions | ProposePlan | None:
+    """Call OpenRouter and validate the payload against the B1 JSON schema.
+
+    Combines :func:`send_to_ai` with :func:`parse_ai_response`. Returns
+    ``None`` on network failure, empty content, or schema validation errors.
+    Does not write to the database.
+
+    Args:
+        prompt: The user prompt to send to the AI model.
+        model: Optional model identifier override.
+
+    Returns:
+        Validated ``AskQuestions`` or ``ProposePlan``, or ``None``.
+    """
+    raw: dict[str, Any] | None = await send_to_ai(prompt, model=model)
+    return parse_ai_response(raw)
+
+

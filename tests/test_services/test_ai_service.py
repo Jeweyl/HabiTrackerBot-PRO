@@ -8,7 +8,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.services.ai_service import build_prompt, send_to_ai
+from src.services.ai_schema import ProposePlan
+from src.services.ai_service import (
+    build_prompt,
+    build_prompt_v2,
+    send_to_ai,
+    send_to_ai_parsed,
+)
+
 
 
 
@@ -178,3 +185,94 @@ def test_build_prompt() -> None:
 
     assert "читать книги" in prompt_empty
     assert "No additional details provided" in prompt_empty
+
+
+def test_build_prompt_v2() -> None:
+    """build_prompt_v2 must request the strict AIResponse contract."""
+    habit_title = "Morning run"
+    answers = {
+        "q1": "Beginner",
+        "q2": "30 minutes",
+    }
+    prompt = build_prompt_v2(habit_title, answers)
+
+    assert "Morning run" in prompt
+    assert "Beginner" in prompt
+    assert "30 minutes" in prompt
+    assert "propose_plan" in prompt
+    assert "ask_questions" in prompt
+    assert "start_time" in prompt
+    assert "duration_minutes" in prompt
+    assert ":00" in prompt or "00,15,30,45" in prompt or "{00,15,30,45}" in prompt
+    # Legacy SMART keys must not be required by v2
+    assert "refined_habit" not in prompt
+    assert "target_per_day" not in prompt
+
+    # Skipped answers omitted; empty answers safe
+    prompt_partial = build_prompt_v2(
+        "чистить зубы",
+        {"q1": "Утром", "q2": "Пропущено"},
+    )
+    assert "чистить зубы" in prompt_partial
+    assert "Утром" in prompt_partial
+    assert "Пропущено" not in prompt_partial
+
+    prompt_empty = build_prompt_v2("читать книги", {})
+    assert "читать книги" in prompt_empty
+    assert "No additional details provided" in prompt_empty
+
+
+@pytest.mark.asyncio
+async def test_send_to_ai_parsed_valid_propose_plan() -> None:
+    """send_to_ai_parsed returns ProposePlan for a schema-valid payload."""
+    payload = {
+        "type": "propose_plan",
+        "title": "Morning run",
+        "start_time": "08:00",
+        "end_time": "08:30",
+        "frequency": "daily",
+        "duration_minutes": 30,
+        "comment": "Start slowly.",
+    }
+    content = json.dumps(payload)
+    mock_api_response = {"choices": [{"message": {"content": content}}]}
+    mock_response = _build_mock_response(200, mock_api_response)
+
+    with patch("aiohttp.ClientSession.post", return_value=mock_response):
+        result = await send_to_ai_parsed("Test prompt v2")
+
+    assert isinstance(result, ProposePlan)
+    assert result.title == "Morning run"
+    assert result.start_time == "08:00"
+    assert result.duration_minutes == 30
+
+
+@pytest.mark.asyncio
+async def test_send_to_ai_parsed_rejects_invalid_schema(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """send_to_ai_parsed returns None when JSON is valid but schema is not."""
+    # Legacy SMART shape — not the B1 contract
+    content = json.dumps(_SAMPLE_AI_RESPONSE)
+    mock_api_response = {"choices": [{"message": {"content": content}}]}
+    mock_response = _build_mock_response(200, mock_api_response)
+
+    with caplog.at_level(logging.WARNING):
+        with patch("aiohttp.ClientSession.post", return_value=mock_response):
+            result = await send_to_ai_parsed("Test prompt v2")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_send_to_ai_parsed_none_on_timeout() -> None:
+    """send_to_ai_parsed must return None on timeout and must not raise."""
+    with patch(
+        "aiohttp.ClientSession.post",
+        side_effect=asyncio.TimeoutError(),
+    ):
+        result = await send_to_ai_parsed("Test prompt v2")
+
+    assert result is None
+
+
