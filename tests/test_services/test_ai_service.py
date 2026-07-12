@@ -10,11 +10,15 @@ import pytest
 
 from src.services.ai_schema import ProposePlan
 from src.services.ai_service import (
+    MAX_CLARIFYING_ROUNDS,
+    build_multiturn_prompt,
     build_prompt,
     build_prompt_v2,
+    build_user_context_summary,
     send_to_ai,
     send_to_ai_parsed,
 )
+
 
 
 
@@ -220,6 +224,56 @@ def test_build_prompt_v2() -> None:
     prompt_empty = build_prompt_v2("читать книги", {})
     assert "читать книги" in prompt_empty
     assert "No additional details provided" in prompt_empty
+
+
+def test_build_multiturn_prompt_includes_context() -> None:
+    """Multiturn prompt must include language, timezone, habits/tasks, round."""
+    summary = build_user_context_summary(
+        language="en",
+        timezone="UTC+3",
+        habits=[{"title": "Run", "start_time": "07:00", "end_time": "07:30", "frequency": "daily"}],
+        tasks=[],
+    )
+    prompt = build_multiturn_prompt(
+        habit_title="Yoga",
+        answers={"When?": "Morning"},
+        language="en",
+        timezone="UTC+3",
+        habits_tasks_summary=summary,
+        clarifying_round=1,
+        force_propose=False,
+    )
+    assert "Yoga" in prompt
+    assert "en" in prompt
+    assert "UTC+3" in prompt
+    assert "Run" in prompt
+    assert "Morning" in prompt
+    assert "propose_plan" in prompt
+    assert "ask_questions" in prompt
+    assert str(MAX_CLARIFYING_ROUNDS) in prompt
+    assert "1/" in prompt or "rounds already used: 1" in prompt.lower() or "1/" in prompt
+
+
+def test_build_multiturn_prompt_force_propose() -> None:
+    """force_propose must forbid further ask_questions in the prompt text."""
+    prompt = build_multiturn_prompt(
+        habit_title="Read",
+        answers={},
+        force_propose=True,
+        clarifying_round=MAX_CLARIFYING_ROUNDS,
+    )
+    assert "MUST return propose_plan" in prompt or "Do NOT return ask_questions" in prompt
+    assert "Read" in prompt
+
+
+def test_build_user_context_summary_empty_safe() -> None:
+    """Empty habits/tasks must not crash and produce placeholders."""
+    summary = build_user_context_summary()
+    assert "language=" in summary
+    assert "timezone=" in summary
+    assert "habits: (none)" in summary
+    assert "tasks: (none)" in summary
+
 
 
 @pytest.mark.asyncio

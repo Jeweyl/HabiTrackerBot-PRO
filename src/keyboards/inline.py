@@ -737,6 +737,43 @@ def get_ai_fallback_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def get_ai_choice_keyboard(options: list[str]) -> InlineKeyboardMarkup:
+    """Build an inline keyboard for AI clarifying choice questions.
+
+    Args:
+        options: Choice labels (indexed into ``assist:choice:{i}``).
+
+    Returns:
+        InlineKeyboardMarkup with one button per option plus skip/nav.
+    """
+    builder = InlineKeyboardBuilder()
+    for i, label in enumerate(options):
+        text = (label or "").strip() or f"Option {i + 1}"
+        # Telegram callback_data limit 64 bytes; keep index-based payload.
+        builder.button(text=text[:64], callback_data=f"assist:choice:{i}")
+    builder.button(text="⏭ Пропустить", callback_data="assist:skip")
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    # One option per row, then skip, then back+cancel
+    rows = [1] * len(options) + [1, 2]
+    builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def get_ai_plan_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Build Yes/No keyboard for AI plan preview confirmation.
+
+    Returns:
+        InlineKeyboardMarkup with confirm / decline / cancel.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Да", callback_data="assist:yes")
+    builder.button(text="❌ Нет", callback_data="assist:no")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+    builder.adjust(2, 1)
+    return builder.as_markup()
+
+
 # ---------------------------------------------------------------------------
 # Adaptive question keyboards — used in the AI assistant wizard
 # ---------------------------------------------------------------------------

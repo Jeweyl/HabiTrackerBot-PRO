@@ -10,9 +10,12 @@ import pytest
 
 from src.services.ai_schema import (
     AskQuestions,
+    ClarifyingQuestion,
     ProposePlan,
+    normalize_question,
     parse_ai_response,
 )
+
 
 
 # ---------------------------------------------------------------------------
@@ -311,3 +314,49 @@ def test_propose_plan_all_15_min_slots() -> None:
         )
         assert isinstance(result, ProposePlan), f"failed for {start}"
         assert result.start_time == start
+
+
+def test_ask_questions_string_items_normalized() -> None:
+    """Plain string questions remain valid (B1 compat → ClarifyingQuestion)."""
+    result = parse_ai_response(_valid_ask_questions())
+    assert isinstance(result, AskQuestions)
+    assert len(result.questions) == 2
+    assert all(isinstance(q, ClarifyingQuestion) for q in result.questions)
+    assert result.questions[0].kind == "text"
+
+
+def test_ask_questions_structured_choice_and_time() -> None:
+    """Structured choice/time questions parse correctly."""
+    raw = {
+        "type": "ask_questions",
+        "questions": [
+            {
+                "text": "When?",
+                "kind": "choice",
+                "options": ["Morning", "Evening"],
+            },
+            {"text": "Start time?", "kind": "time"},
+        ],
+    }
+    result = parse_ai_response(raw)
+    assert isinstance(result, AskQuestions)
+    assert result.questions[0].kind == "choice"
+    assert result.questions[0].options == ["Morning", "Evening"]
+    assert result.questions[1].kind == "time"
+
+
+def test_choice_without_options_becomes_text() -> None:
+    """choice without options is downgraded to text."""
+    q = normalize_question({"text": "Anything?", "kind": "choice", "options": []})
+    assert q is not None
+    assert q.kind == "text"
+
+
+def test_normalize_question_garbage_returns_none() -> None:
+    """normalize_question never raises on garbage."""
+    assert normalize_question(None) is None
+    assert normalize_question("") is None
+    assert normalize_question(42) is None
+    assert normalize_question({"kind": "choice"}) is None  # missing text
+
+

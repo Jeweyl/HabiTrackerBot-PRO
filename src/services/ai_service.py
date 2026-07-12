@@ -16,11 +16,14 @@ from src.services.ai_schema import (
     parse_ai_response,
 )
 
-
 logger = logging.getLogger(__name__)
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 """OpenRouter chat completions endpoint."""
+
+MAX_CLARIFYING_ROUNDS = 3
+"""Maximum number of AI ``ask_questions`` rounds before force-propose / fallback."""
+
 
 
 async def _call_openrouter(
@@ -197,17 +200,7 @@ def build_prompt(habit_title: str, answers: dict) -> str:
 def build_prompt_v2(habit_title: str, answers: dict) -> str:
     """Build a v2 prompt that requests the strict AIResponse JSON contract.
 
-    The model must return **only** one of two JSON objects (no markdown, no
-    prose outside JSON):
-
-    * ``{"type":"ask_questions","questions":[...],"context":...}``
-    * ``{"type":"propose_plan","title":...,"start_time":"HH:MM",...}``
-
-    Time rules (enforced by the server-side parser as well):
-    * minutes only ``:00`` / ``:15`` / ``:30`` / ``:45``
-    * if both ``start_time`` and ``end_time`` and ``duration_minutes`` are set,
-      ``duration_minutes`` must equal ``end - start`` (same day)
-    * ``frequency`` ∈ ``daily`` | ``weekdays`` | ``weekends``
+    Thin wrapper around :func:`build_multiturn_prompt` without user context.
 
     Args:
         habit_title: The habit title entered by the user.
@@ -218,6 +211,137 @@ def build_prompt_v2(habit_title: str, answers: dict) -> str:
         A formatted prompt string ready for ``send_to_ai`` /
         ``send_to_ai_parsed``.
     """
+    return build_multiturn_prompt(
+        habit_title=habit_title,
+        answers=answers,
+        language="ru",
+        timezone="UTC",
+        habits_tasks_summary="",
+        clarifying_round=0,
+        force_propose=False,
+    )
+
+
+def build_user_context_summary(
+    *,
+    language: str = "ru",
+    timezone: str = "UTC",
+    habits: list[Any] | None = None,
+    tasks: list[Any] | None = None,
+) -> str:
+    """Build a short natural-language summary of the user's schedule context.
+
+    Never raises. Empty / missing collections produce a safe placeholder.
+
+    Args:
+        language: User language code (informational).
+        timezone: User timezone string.
+        habits: Optional list of habit-like objects with ``title``,
+            ``start_time``, ``end_time``, ``frequency``.
+        tasks: Optional list of task-like objects with ``title``, ``date``,
+            ``start_time``.
+
+    Returns:
+        Multi-line summary string for inclusion in the AI prompt.
+    """
+    habits = habits or []
+    tasks = tasks or []
+
+    lines: list[str] = [
+        f"language={language or 'ru'}",
+        f"timezone={timezone or 'UTC'}",
+    ]
+
+    if not habits:
+        lines.append("habits: (none)")
+    else:
+        habit_bits: list[str] = []
+        for h in habits[:15]:
+            try:
+                title = getattr(h, "title", None) or (h.get("title") if isinstance(h, dict) else "?")
+                start = getattr(h, "start_time", None)
+                if start is None and isinstance(h, dict):
+                    start = h.get("start_time")
+                end = getattr(h, "end_time", None)
+                if end is None and isinstance(h, dict):
+                    end = h.get("end_time")
+                freq = getattr(h, "frequency", None)
+                if freq is None and isinstance(h, dict):
+                    freq = h.get("frequency")
+                start_s = start.strftime("%H:%M") if hasattr(start, "strftime") else (start or "?")
+                end_s = (
+                    end.strftime("%H:%M")
+                    if hasattr(end, "strftime")
+                    else (end if end is not None else "—")
+                )
+                habit_bits.append(f"{title} {start_s}-{end_s} ({freq or 'daily'})")
+            except Exception:  # noqa: BLE001
+                continue
+        lines.append(
+            "habits: " + ("; ".join(habit_bits) if habit_bits else "(none)")
+        )
+
+    if not tasks:
+        lines.append("tasks: (none)")
+    else:
+        task_bits: list[str] = []
+        for t in tasks[:15]:
+            try:
+                title = getattr(t, "title", None) or (t.get("title") if isinstance(t, dict) else "?")
+                d = getattr(t, "date", None)
+                if d is None and isinstance(t, dict):
+                    d = t.get("date")
+                start = getattr(t, "start_time", None)
+                if start is None and isinstance(t, dict):
+                    start = t.get("start_time")
+                d_s = d.isoformat() if hasattr(d, "isoformat") else (str(d) if d else "?")
+                start_s = start.strftime("%H:%M") if hasattr(start, "strftime") else (start or "?")
+                task_bits.append(f"{d_s} {start_s} {title}")
+            except Exception:  # noqa: BLE001
+                continue
+        lines.append(
+            "tasks: " + ("; ".join(task_bits) if task_bits else "(none)")
+        )
+
+    return "\n".join(lines)
+
+
+def build_multiturn_prompt(
+    *,
+    habit_title: str,
+    answers: dict | None = None,
+    language: str = "ru",
+    timezone: str = "UTC",
+    habits_tasks_summary: str = "",
+    clarifying_round: int = 0,
+    force_propose: bool = False,
+) -> str:
+    """Build a multi-turn habit-coach prompt with user context (B2).
+
+    The model must return **only** one of two JSON objects (no markdown, no
+    prose outside JSON):
+
+    * ``{"type":"ask_questions","questions":[...],"context":...}``
+    * ``{"type":"propose_plan","title":...,"start_time":"HH:MM",...}``
+
+    When *force_propose* is True (after max clarifying rounds), the model is
+    instructed to return ``propose_plan`` only.
+
+    Args:
+        habit_title: Habit title from the user.
+        answers: Collected Q/A so far; skipped/empty values omitted.
+        language: User language code.
+        timezone: User timezone string.
+        habits_tasks_summary: Pre-built summary from
+            :func:`build_user_context_summary`.
+        clarifying_round: Number of ``ask_questions`` rounds already used
+            (0-based before the next call).
+        force_propose: If True, forbid further ``ask_questions``.
+
+    Returns:
+        Prompt string for :func:`send_to_ai_parsed`.
+    """
+    answers = answers or {}
     answers_parts: list[str] = []
     for key, value in answers.items():
         if value and value != "Пропущено":
@@ -227,14 +351,39 @@ def build_prompt_v2(habit_title: str, answers: dict) -> str:
         "; ".join(answers_parts) if answers_parts else "No additional details provided"
     )
 
+    context_block = habits_tasks_summary.strip() or (
+        f"language={language or 'ru'}\ntimezone={timezone or 'UTC'}\n"
+        "habits: (none)\ntasks: (none)"
+    )
+
+    rounds_left = max(0, MAX_CLARIFYING_ROUNDS - int(clarifying_round or 0))
+
+    force_line = (
+        "CRITICAL: You MUST return propose_plan now. Do NOT return ask_questions. "
+        "Use reasonable defaults for any missing details.\n"
+        if force_propose
+        else (
+            f"You may ask clarifying questions in at most {rounds_left} more "
+            f"round(s) (max {MAX_CLARIFYING_ROUNDS} total). "
+            "Prefer propose_plan when you have enough information.\n"
+        )
+    )
+
     prompt = (
-        "You are a habit coach. The user wants to develop the habit: "
-        f"'{habit_title}'. "
-        f"They mentioned: {answers_text}. "
+        "You are a habit coach helping the user create ONE habit.\n"
+        f"User language: {language or 'ru'}. User timezone: {timezone or 'UTC'}.\n"
+        f"User schedule context:\n{context_block}\n"
+        f"Desired habit: '{habit_title}'.\n"
+        f"Answers so far: {answers_text}.\n"
+        f"Clarifying rounds already used: {int(clarifying_round or 0)}/"
+        f"{MAX_CLARIFYING_ROUNDS}.\n"
+        f"{force_line}"
         "Respond with ONLY a single valid JSON object (no markdown fences, "
         "no commentary) matching exactly one of these shapes:\n"
-        "1) Ask clarifying questions:\n"
-        '{"type":"ask_questions","questions":["..."],"context":"optional"}\n'
+        "1) Ask clarifying questions (1–3 questions per round):\n"
+        '{"type":"ask_questions","questions":["..."]|'
+        '[{"text":"...","kind":"text"|"choice"|"time","options":["a","b"]|null}],'
+        '"context":"optional"}\n'
         "2) Propose a concrete plan:\n"
         '{"type":"propose_plan","title":"...","start_time":"HH:MM",'
         '"end_time":"HH:MM"|null,"frequency":"daily"|"weekdays"|"weekends"|null,'
@@ -248,9 +397,9 @@ def build_prompt_v2(habit_title: str, answers: dict) -> str:
         "on the same calendar day (no overnight ranges).\n"
         "- duration_minutes, when set, must be a positive multiple of 15.\n"
         "- frequency must be one of: daily, weekdays, weekends.\n"
-        "- Prefer propose_plan when you have enough information; "
-        "otherwise use ask_questions.\n"
-        "- Do not invent metrics outside this schema."
+        "- Avoid scheduling over existing habits/tasks when possible.\n"
+        "- Do not invent fields outside this schema.\n"
+        "- Do not create or claim the habit is already saved; only propose."
     )
 
     return prompt

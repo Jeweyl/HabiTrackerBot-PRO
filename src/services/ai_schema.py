@@ -124,27 +124,102 @@ class ScheduleOp(BaseModel):
         return self
 
 
+class ClarifyingQuestion(BaseModel):
+    """A single clarifying question the AI may ask the user.
+
+    Attributes:
+        text: Question text shown to the user.
+        kind: Input mode — free ``text``, ``choice`` buttons, or ``time`` picker.
+        options: Choice labels when ``kind="choice"`` (2–6 recommended).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    text: str = Field(min_length=1)
+    kind: Literal["text", "choice", "time"] = "text"
+    options: list[str] | None = None
+
+    @field_validator("text")
+    @classmethod
+    def _strip_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("question text must not be empty")
+        return cleaned
+
+    @field_validator("options")
+    @classmethod
+    def _clean_options(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned = [o.strip() for o in value if isinstance(o, str) and o.strip()]
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def _normalize_kind(self) -> ClarifyingQuestion:
+        """Downgrade choice without options to free text."""
+        if self.kind == "choice" and not self.options:
+            return self.model_copy(update={"kind": "text", "options": None})
+        return self
+
+
+def normalize_question(raw: Any) -> ClarifyingQuestion | None:
+    """Normalize a raw question item into :class:`ClarifyingQuestion`.
+
+    Accepts a plain string (→ ``kind=text``) or a dict/object. Returns
+    ``None`` for empty/invalid items (never raises).
+
+    Args:
+        raw: String, dict, ClarifyingQuestion, or garbage.
+
+    Returns:
+        Validated question or ``None``.
+    """
+    try:
+        if isinstance(raw, ClarifyingQuestion):
+            return raw
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return None
+            return ClarifyingQuestion(text=text, kind="text")
+        if isinstance(raw, dict):
+            # Plain {"text": "..."} or full shape
+            if "text" not in raw and "question" in raw:
+                raw = {**raw, "text": raw["question"]}
+            return ClarifyingQuestion.model_validate(raw)
+    except (ValidationError, ValueError, TypeError):
+        return None
+    return None
+
+
 class AskQuestions(BaseModel):
     """AI asks clarifying questions instead of proposing a plan yet.
 
     Attributes:
         type: Discriminator; always ``ask_questions``.
-        questions: Non-empty list of questions for the user.
+        questions: Non-empty list of questions (strings or structured).
         context: Optional short context / reason for the questions.
     """
 
     model_config = ConfigDict(extra="ignore")
 
     type: Literal["ask_questions"] = "ask_questions"
-    questions: list[str] = Field(min_length=1)
+    questions: list[Any] = Field(min_length=1)
     context: str | None = None
 
-    @field_validator("questions")
+    @field_validator("questions", mode="before")
     @classmethod
-    def _non_empty_questions(cls, value: list[str]) -> list[str]:
-        cleaned = [q.strip() for q in value if isinstance(q, str) and q.strip()]
+    def _normalize_questions(cls, value: Any) -> list[ClarifyingQuestion]:
+        if not isinstance(value, list):
+            raise ValueError("questions must be a list")
+        cleaned: list[ClarifyingQuestion] = []
+        for item in value:
+            q = normalize_question(item)
+            if q is not None:
+                cleaned.append(q)
         if not cleaned:
-            raise ValueError("questions must contain at least one non-empty string")
+            raise ValueError("questions must contain at least one non-empty question")
         return cleaned
 
 

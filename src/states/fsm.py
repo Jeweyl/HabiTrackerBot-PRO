@@ -101,23 +101,22 @@ class EditTaskFSM(StatesGroup):
 
 
 class AIAssistantFSM(StatesGroup):
-    """FSM group for the AI-assisted SMART goal wizard.
+    """FSM group for the AI multi-turn habit assistant (B2).
 
-    Guides the user through a conversational flow where the AI
-    collects information, generates recommendations, and creates
-    habits and tasks automatically.
+    Flow: title → (AI ask_questions loop, max 3 rounds) → propose_plan
+    preview → user confirm → create habit.
 
     Attributes:
-        start: Initial greeting and title input.
-        ask_adaptive_q1: First adaptive question based on habit title keywords.
-        ask_adaptive_q2: Second adaptive question based on habit title keywords.
-        confirm_recommendations: Show AI recommendations and ask for confirmation.
+        start: Initial greeting and habit title input.
+        clarifying: User answers the current AI clarifying question
+            (text / choice / time).
+        confirm_plan: Soft preview of ProposePlan; no DB write until yes.
     """
 
     start = State()
-    ask_adaptive_q1 = State()
-    ask_adaptive_q2 = State()
-    confirm_recommendations = State()
+    clarifying = State()
+    confirm_plan = State()
+
 
 
 class ConflictHabitFSM(StatesGroup):
