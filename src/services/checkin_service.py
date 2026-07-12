@@ -10,7 +10,6 @@ from aiogram import Bot
 from sqlalchemy import select
 
 from src.db.models import Task, User
-
 from src.db.session import get_db
 from src.i18n import normalize_lang, t
 from src.keyboards.inline import get_checkin_keyboard
@@ -28,6 +27,7 @@ class _CheckinTaskLike(Protocol):
     is_completed: bool
     is_placeholder: bool
     last_checkin_at: datetime | None
+    checkin_snooze_until: datetime | None
 
 
 def is_checkin_due(
@@ -43,6 +43,7 @@ def is_checkin_due(
     - completed / placeholder tasks are skipped
     - only tasks scheduled for the user's local today
     - local time must be at/after ``start_time``
+    - active ``checkin_snooze_until`` suppresses prompts
     - first check-in is sent immediately after start_time
     - subsequent check-ins respect ``interval_minutes`` anti-spam
     """
@@ -57,6 +58,17 @@ def is_checkin_due(
     start = task.start_time.replace(second=0, microsecond=0)  # type: ignore[union-attr]
     if local_time < start:
         return False
+
+    # Explicit mute / snooze window (UTC).
+    snooze = getattr(task, "checkin_snooze_until", None)
+    if snooze is not None:
+        if snooze.tzinfo is None:
+            snooze = snooze.replace(tzinfo=timezone.utc)
+        now_utc = local_dt.astimezone(timezone.utc) if local_dt.tzinfo else local_dt.replace(
+            tzinfo=timezone.utc
+        )
+        if now_utc < snooze:
+            return False
 
     if task.last_checkin_at is None:
         return True
@@ -73,7 +85,6 @@ def is_checkin_due(
 def _checkin_text(title: str, lang: str = "ru") -> str:
     """Build the check-in prompt text for a task title."""
     return t("checkin.prompt", normalize_lang(lang), title=title)
-
 
 
 async def process_checkins(bot: Bot) -> int:
@@ -108,6 +119,7 @@ async def process_checkins(bot: Bot) -> int:
                 continue
 
             local_date = user_local.date()
+            lang = normalize_lang(user.language)
 
             tasks_result = await session.execute(
                 select(Task).where(
@@ -131,7 +143,7 @@ async def process_checkins(bot: Bot) -> int:
                     await bot.send_message(
                         chat_id=user.telegram_id,
                         text=_checkin_text(task.title, user.language),
-                        reply_markup=get_checkin_keyboard(task.id),
+                        reply_markup=get_checkin_keyboard(task.id, lang),
                     )
 
                 except Exception as exc:

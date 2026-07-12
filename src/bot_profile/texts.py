@@ -1,4 +1,4 @@
-"""Localized BotFather/API profile copy for HabiTracker.
+"""Localized BotFather/API profile copy for HabiTrackerBot.
 
 Telegram limits:
     - description: 512 characters
@@ -38,7 +38,7 @@ ABOUT: Final[dict[str | None, str]] = {
 
 DESCRIPTIONS: Final[dict[str | None, str]] = {
     None: (
-        "🌱 HabiTracker — habits that actually fit your day\n"
+        "🌱 HabiTrackerBot — habits that actually fit your day\n"
         "\n"
         "Not a dumb checklist:\n"
         "• 🤖 AI turns vague goals into a SMART habit + time slot\n"
@@ -49,7 +49,7 @@ DESCRIPTIONS: Final[dict[str | None, str]] = {
         "Type /start to begin — build your first habit in minutes."
     ),
     "en": (
-        "🌱 HabiTracker — habits that actually fit your day\n"
+        "🌱 HabiTrackerBot — habits that actually fit your day\n"
         "\n"
         "Not a dumb checklist:\n"
         "• 🤖 AI turns vague goals into a SMART habit + time slot\n"
@@ -60,7 +60,7 @@ DESCRIPTIONS: Final[dict[str | None, str]] = {
         "Type /start to begin — build your first habit in minutes."
     ),
     "ru": (
-        "🌱 HabiTracker — привычки, которые реально встраиваются в день\n"
+        "🌱 HabiTrackerBot — привычки, которые реально встраиваются в день\n"
         "\n"
         "Не чеклист «сделал/не сделал», а система:\n"
         "• 🤖 AI превращает «хочу больше двигаться» в SMART-цель и слот\n"

@@ -129,6 +129,8 @@ class Task(Base):
         is_completed: Whether the task has been marked as done.
         is_placeholder: Whether this is a placeholder task (ЗАНЯТ).
         last_checkin_at: UTC timestamp of the last check-in prompt (anti-spam).
+        checkin_snooze_until: UTC timestamp until which check-ins are suppressed
+            (mute until end of day, or snooze for N minutes).
         created_at: Timestamp of record creation.
     """
 
@@ -150,11 +152,15 @@ class Task(Base):
     last_checkin_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
+    checkin_snooze_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
     )
+
 
 
 

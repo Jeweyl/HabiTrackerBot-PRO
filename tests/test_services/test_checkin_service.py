@@ -30,6 +30,8 @@ class FakeTask:
     is_completed: bool = False
     is_placeholder: bool = False
     last_checkin_at: Optional[datetime] = None
+    checkin_snooze_until: Optional[datetime] = None
+
 
 
 def _local_dt(
@@ -135,6 +137,31 @@ class TestIsCheckinDue:
         task = FakeTask(date=day, start_time=time(9, 0))
         local_dt = _local_dt(day, 10, 0, offset_hours=3)
         assert is_checkin_due(task, local_dt=local_dt, interval_minutes=15) is True
+
+    def test_snooze_until_blocks(self) -> None:
+        """Active checkin_snooze_until suppresses check-ins."""
+        day = date(2026, 7, 12)
+        local_dt = _local_dt(day, 10, 0, offset_hours=0)
+        snooze = local_dt.astimezone(timezone.utc) + timedelta(minutes=20)
+        task = FakeTask(
+            date=day,
+            start_time=time(9, 0),
+            checkin_snooze_until=snooze,
+        )
+        assert is_checkin_due(task, local_dt=local_dt, interval_minutes=15) is False
+
+    def test_snooze_until_expired_allows(self) -> None:
+        """Expired checkin_snooze_until no longer blocks."""
+        day = date(2026, 7, 12)
+        local_dt = _local_dt(day, 10, 0, offset_hours=0)
+        snooze = local_dt.astimezone(timezone.utc) - timedelta(minutes=1)
+        task = FakeTask(
+            date=day,
+            start_time=time(9, 0),
+            checkin_snooze_until=snooze,
+        )
+        assert is_checkin_due(task, local_dt=local_dt, interval_minutes=15) is True
+
 
 
 # ---------------------------------------------------------------------------

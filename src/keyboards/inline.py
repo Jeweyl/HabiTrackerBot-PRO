@@ -1175,23 +1175,109 @@ def get_check_interval_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
 
 
 # ---------------------------------------------------------------------------
-# Check-in keyboard — yes / no for incomplete task prompts
+# Check-in keyboards — yes / mute / later / reschedule
 # ---------------------------------------------------------------------------
 
+_CHECKIN_SNOOZE_MINUTES: tuple[int, ...] = (15, 30, 45, 60)
 
-def get_checkin_keyboard(task_id: int) -> InlineKeyboardMarkup:
-    """Build an inline keyboard for a check-in prompt.
+
+def get_checkin_keyboard(task_id: int, lang: str = "ru") -> InlineKeyboardMarkup:
+    """Build the main check-in prompt keyboard (4 actions).
 
     Args:
         task_id: ID of the task being checked.
+        lang: User language code for button labels.
 
     Returns:
-        InlineKeyboardMarkup with ✅ / ❌ buttons.
+        InlineKeyboardMarkup with yes / mute / later / reschedule.
     """
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅", callback_data=f"checkin:yes:{task_id}")
-    builder.button(text="❌", callback_data=f"checkin:no:{task_id}")
-    builder.adjust(2)
+    builder.button(
+        text=t("checkin.btn_yes", lang),
+        callback_data=f"checkin:yes:{task_id}",
+    )
+    builder.button(
+        text=t("checkin.btn_mute", lang),
+        callback_data=f"checkin:mute:{task_id}",
+    )
+    builder.button(
+        text=t("checkin.btn_later", lang),
+        callback_data=f"checkin:later:{task_id}",
+    )
+    builder.button(
+        text=t("checkin.btn_reschedule", lang),
+        callback_data=f"checkin:reschedule:{task_id}",
+    )
+    builder.adjust(1)
     return builder.as_markup()
+
+
+def get_checkin_snooze_keyboard(
+    task_id: int,
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    """Build snooze duration keyboard (15/30/45/60 min + back).
+
+    Args:
+        task_id: ID of the task being snoozed.
+        lang: User language code for button labels.
+
+    Returns:
+        InlineKeyboardMarkup with duration options and back.
+    """
+    builder = InlineKeyboardBuilder()
+    for n in _CHECKIN_SNOOZE_MINUTES:
+        builder.button(
+            text=t("checkin.snooze_option", lang, n=n),
+            callback_data=f"checkin:snooze:{task_id}:{n}",
+        )
+    builder.button(
+        text=t("checkin.back", lang),
+        callback_data=f"checkin:back:{task_id}",
+    )
+    builder.adjust(2, 2, 1)
+    return builder.as_markup()
+
+
+def get_checkin_reschedule_keyboard(
+    task_id: int,
+    slots: list[time],
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    """Build free-slot selection keyboard for rescheduling.
+
+    Args:
+        task_id: ID of the task being moved.
+        slots: Free start times to offer.
+        lang: User language code for the back button.
+
+    Returns:
+        InlineKeyboardMarkup with time buttons and back.
+    """
+    builder = InlineKeyboardBuilder()
+    for slot in slots:
+        label = slot.strftime("%H:%M")
+        builder.button(
+            text=label,
+            callback_data=(
+                f"checkin:move:{task_id}:{slot.hour:02d}:{slot.minute:02d}"
+            ),
+        )
+    builder.button(
+        text=t("checkin.back", lang),
+        callback_data=f"checkin:back:{task_id}",
+    )
+    # 4 time buttons per row, then back alone
+    n = len(slots)
+    if n == 0:
+        builder.adjust(1)
+    else:
+        rows = [4] * (n // 4)
+        if n % 4:
+            rows.append(n % 4)
+        rows.append(1)
+        builder.adjust(*rows)
+    return builder.as_markup()
+
 
 
