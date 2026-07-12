@@ -43,5 +43,25 @@ services:
     env_file:
       - .env
 
+  # Optional read-only stats API (C1) — same image, separate process
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: habits_api
+    restart: "no"
+    command: ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+
 volumes:
   postgres_data:
+
+

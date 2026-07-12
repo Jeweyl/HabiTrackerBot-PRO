@@ -38,3 +38,19 @@ def test_original_bot_username_default_empty() -> None:
     assert Settings.model_fields["ORIGINAL_BOT_USERNAME"].default == ""
 
 
+def test_api_jwt_expire_minutes_default() -> None:
+    """API_JWT_EXPIRE_MINUTES must default to 60."""
+    assert Settings.model_fields["API_JWT_EXPIRE_MINUTES"].default == 60
+
+
+def test_api_ott_ttl_seconds_default() -> None:
+    """API_OTT_TTL_SECONDS must default to 60."""
+    assert Settings.model_fields["API_OTT_TTL_SECONDS"].default == 60
+
+
+def test_api_port_default() -> None:
+    """API_PORT must default to 8000."""
+    assert Settings.model_fields["API_PORT"].default == 8000
+
+
+

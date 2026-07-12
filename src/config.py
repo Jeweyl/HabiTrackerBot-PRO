@@ -70,6 +70,12 @@ class Settings(BaseSettings):
         BOT_PUBLIC_URL: Public t.me link to this bot (optional, for onboarding).
         CHANNEL_URL: Public channel URL (optional, for onboarding).
         ORIGINAL_BOT_USERNAME: Original bot username without @ (optional).
+        API_JWT_SECRET: HMAC secret for dashboard JWT (dev default ok for tests).
+        API_JWT_EXPIRE_MINUTES: Access token lifetime in minutes (default 60).
+        API_OTT_TTL_SECONDS: One-time dashboard token TTL in Redis (default 60).
+        API_CORS_ORIGINS: Comma-separated CORS origins; empty = allow all.
+        API_HOST: Uvicorn bind host for the stats API (default 0.0.0.0).
+        API_PORT: Uvicorn bind port for the stats API (default 8000).
     """
 
     BOT_TOKEN: str = ""
@@ -86,6 +92,14 @@ class Settings(BaseSettings):
     BOT_PUBLIC_URL: str = ""
     CHANNEL_URL: str = ""
     ORIGINAL_BOT_USERNAME: str = ""
+    API_JWT_SECRET: str = "dev-api-jwt-secret-change-me-32b!"
+
+    API_JWT_EXPIRE_MINUTES: int = 60
+    API_OTT_TTL_SECONDS: int = 60
+    API_CORS_ORIGINS: str = ""
+    API_HOST: str = "0.0.0.0"
+    API_PORT: int = 8000
+
 
 
 
