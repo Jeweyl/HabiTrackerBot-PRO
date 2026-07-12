@@ -98,9 +98,22 @@ docker compose exec bot pytest -v
 # или локально: pytest -v
 ```
 
+### Профиль бота (Description / About / Commands)
+
+Тексты приветственного экрана (RU/EN + default) выставляются через Bot API:
+
+```bash
+python scripts/set_bot_profile.py --dry-run   # посмотреть тексты
+python scripts/set_bot_profile.py             # применить (нужен BOT_TOKEN)
+python scripts/set_bot_profile.py --show      # что сейчас в Telegram
+```
+
+Аватар по-прежнему через BotFather (`/setuserpic`). В Description CTA: **напишите `/start`**.
+
 ---
 
 ## Установка и запуск
+
 
 ### Предварительные требования
 
