@@ -90,12 +90,8 @@ async def test_overview_with_tasks(
     today = date.today()
     yesterday = today - timedelta(days=1)
 
-    await create_task(
-        api_session, user, title="T1", task_date=today, is_completed=True
-    )
-    await create_task(
-        api_session, user, title="T2", task_date=today, is_completed=True
-    )
+    await create_task(api_session, user, title="T1", task_date=today, is_completed=True)
+    await create_task(api_session, user, title="T2", task_date=today, is_completed=True)
     await create_task(
         api_session, user, title="T3", task_date=yesterday, is_completed=False
     )
@@ -121,16 +117,10 @@ async def test_daily_with_partial_days(
     user = await create_user(api_session)
     d1 = date(2026, 6, 1)
     d3 = date(2026, 6, 3)
-    await create_task(
-        api_session, user, title="A", task_date=d1, is_completed=True
-    )
-    await create_task(
-        api_session, user, title="B", task_date=d1, is_completed=False
-    )
+    await create_task(api_session, user, title="A", task_date=d1, is_completed=True)
+    await create_task(api_session, user, title="B", task_date=d1, is_completed=False)
     # d2 empty — gap-fill
-    await create_task(
-        api_session, user, title="C", task_date=d3, is_completed=True
-    )
+    await create_task(api_session, user, title="C", task_date=d3, is_completed=True)
 
     headers = await auth_header_for(user)
     resp = await client.get(
@@ -256,3 +246,81 @@ async def test_placeholder_counted_like_bot(
     data = resp.json()
     assert data["total_tasks"] == 1
     assert data["completed_tasks"] == 0
+
+
+@pytest.mark.asyncio
+async def test_habits_breakdown_empty(
+    client: AsyncClient,
+    api_session: AsyncSession,
+) -> None:
+    user = await create_user(api_session)
+    headers = await auth_header_for(user)
+    resp = await client.get("/api/v1/stats/habits", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["items"] == []
+    assert data["days"] == 7
+    assert "from" in data and "to" in data
+
+
+@pytest.mark.asyncio
+async def test_habits_breakdown_with_data(
+    client: AsyncClient,
+    api_session: AsyncSession,
+) -> None:
+    user = await create_user(api_session)
+    habit_a = await create_habit(api_session, user, title="Run")
+    habit_b = await create_habit(api_session, user, title="Read")
+    today = date.today()
+
+    await create_task(
+        api_session,
+        user,
+        title="Run 1",
+        task_date=today,
+        is_completed=True,
+        habit_id=habit_a.id,
+    )
+    await create_task(
+        api_session,
+        user,
+        title="Run 2",
+        task_date=today,
+        is_completed=False,
+        habit_id=habit_a.id,
+    )
+    # habit_b has no tasks in window — still listed with zeros
+
+    headers = await auth_header_for(user)
+    resp = await client.get(
+        "/api/v1/stats/habits",
+        params={"days": 7},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 2
+    by_title = {i["title"]: i for i in items}
+    assert by_title["Run"]["total"] == 2
+    assert by_title["Run"]["completed"] == 1
+    assert by_title["Run"]["missed"] == 1
+    assert by_title["Run"]["completion_rate"] == 50.0
+    assert by_title["Read"]["total"] == 0
+    assert by_title["Read"]["completed"] == 0
+    assert by_title["Read"]["completion_rate"] == 0.0
+    assert habit_b.id in {i["habit_id"] for i in items}
+
+
+@pytest.mark.asyncio
+async def test_habits_breakdown_days_out_of_range(
+    client: AsyncClient,
+    api_session: AsyncSession,
+) -> None:
+    user = await create_user(api_session)
+    headers = await auth_header_for(user)
+    resp = await client.get(
+        "/api/v1/stats/habits",
+        params={"days": 0},
+        headers=headers,
+    )
+    assert resp.status_code == 422

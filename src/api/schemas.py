@@ -79,6 +79,28 @@ class ScheduleResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class HabitBreakdownItemResponse(BaseModel):
+    """One habit in the breakdown list."""
+
+    habit_id: int
+    title: str
+    total: int
+    completed: int
+    missed: int
+    completion_rate: float
+
+
+class HabitBreakdownResponse(BaseModel):
+    """Per-habit stats for a rolling window."""
+
+    days: int
+    from_: date = Field(alias="from")
+    to: date
+    items: list[HabitBreakdownItemResponse]
+
+    model_config = {"populate_by_name": True}
+
+
 class HealthResponse(BaseModel):
     """Liveness probe."""
 

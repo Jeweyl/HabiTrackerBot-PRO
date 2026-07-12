@@ -54,12 +54,22 @@ class ScheduleItem:
     habit_id: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class HabitBreakdownItem:
+    """Per-habit completion stats for a rolling window."""
+
+    habit_id: int
+    title: str
+    total: int
+    completed: int
+    missed: int
+    completion_rate: float
+
+
 def validate_days(days: int) -> int:
     """Validate overview ``days`` window (1..MAX_STATS_RANGE_DAYS)."""
     if days is None or days < 1 or days > MAX_STATS_RANGE_DAYS:
-        raise ValueError(
-            f"days must be between 1 and {MAX_STATS_RANGE_DAYS}"
-        )
+        raise ValueError(f"days must be between 1 and {MAX_STATS_RANGE_DAYS}")
     return days
 
 
@@ -69,9 +79,7 @@ def validate_date_range(from_date: date, to_date: date) -> tuple[date, date]:
         raise ValueError("from must be on or before to")
     span = (to_date - from_date).days + 1
     if span > MAX_STATS_RANGE_DAYS:
-        raise ValueError(
-            f"date range must not exceed {MAX_STATS_RANGE_DAYS} days"
-        )
+        raise ValueError(f"date range must not exceed {MAX_STATS_RANGE_DAYS} days")
     return from_date, to_date
 
 
@@ -188,7 +196,6 @@ async def get_daily_series(
     result = await session.execute(rows_stmt)
     rows = result.all()
 
-
     by_day: dict[date, list[int]] = {}
     for task_date, is_completed in rows:
         bucket = by_day.setdefault(task_date, [0, 0])
@@ -246,6 +253,68 @@ async def get_schedule(
                 is_completed=bool(task.is_completed),
                 is_placeholder=bool(task.is_placeholder),
                 habit_id=task.habit_id,
+            )
+        )
+    return items
+
+
+async def get_habit_breakdown(
+    session: AsyncSession,
+    user_id: int,
+    *,
+    days: int = 7,
+    today: date | None = None,
+) -> list[HabitBreakdownItem]:
+    """Return per-habit completion stats for the last *days* including *today*.
+
+    Habits with zero tasks in the window still appear with zero counts so the
+    UI can show an empty-but-known habit list. Never raises for empty data.
+    """
+    days = validate_days(days)
+    today = today or date.today()
+    since = today - timedelta(days=days - 1)
+
+    habits_stmt = select(Habit).where(Habit.user_id == user_id).order_by(Habit.id.asc())
+    habits_result = await session.execute(habits_stmt)
+    habits: Sequence[Habit] = habits_result.scalars().all()
+
+    if not habits:
+        return []
+
+    task_stmt = select(Task.habit_id, Task.is_completed).where(
+        Task.user_id == user_id,
+        Task.date >= since,
+        Task.date <= today,
+        Task.habit_id.is_not(None),
+    )
+    task_result = await session.execute(task_stmt)
+    rows = task_result.all()
+
+    counts: dict[int, list[int]] = {}
+    for habit_id, is_completed in rows:
+        if habit_id is None:
+            continue
+        bucket = counts.setdefault(int(habit_id), [0, 0])
+        bucket[0] += 1
+        if is_completed:
+            bucket[1] += 1
+
+    items: list[HabitBreakdownItem] = []
+    for habit in habits:
+        total, completed = counts.get(habit.id, [0, 0])
+        missed = total - completed
+        if total == 0:
+            rate = 0.0
+        else:
+            rate = round(completed / total * 100, 1)
+        items.append(
+            HabitBreakdownItem(
+                habit_id=habit.id,
+                title=habit.title or f"Habit #{habit.id}",
+                total=total,
+                completed=completed,
+                missed=missed,
+                completion_rate=rate,
             )
         )
     return items

@@ -42,6 +42,22 @@ export type ScheduleResponse = {
   items: ScheduleItem[]
 }
 
+export type HabitBreakdownItem = {
+  habit_id: number
+  title: string
+  total: number
+  completed: number
+  missed: number
+  completion_rate: number
+}
+
+export type HabitBreakdownResponse = {
+  days: number
+  from: string
+  to: string
+  items: HabitBreakdownItem[]
+}
+
 export function fetchOverview(days = 7): Promise<OverviewResponse> {
   return apiRequest<OverviewResponse>(`/api/v1/stats/overview?days=${days}`)
 }
@@ -60,4 +76,12 @@ export function fetchSchedule(
 ): Promise<ScheduleResponse> {
   const q = new URLSearchParams({ from, to })
   return apiRequest<ScheduleResponse>(`/api/v1/stats/schedule?${q}`)
+}
+
+export function fetchHabitBreakdown(
+  days = 7,
+): Promise<HabitBreakdownResponse> {
+  return apiRequest<HabitBreakdownResponse>(
+    `/api/v1/stats/habits?days=${days}`,
+  )
 }
