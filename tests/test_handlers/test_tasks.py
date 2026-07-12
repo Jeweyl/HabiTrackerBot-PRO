@@ -247,10 +247,12 @@ async def test_full_task_creation_with_end_time(
     assert "Выберите время начала" in msg.text
 
     # 5. Choose start time 10:00
+    await client.send_callback("time:hour:10", message_text="start time")
     msg = await client.send_callback("time:10:00", message_text="start time")
     assert "Выберите время окончания" in msg.text
 
     # 6. Choose end time 12:00
+    await client.send_callback("time:hour:12", message_text="end time")
     msg = await client.send_callback("time:12:00", message_text="end time")
     assert "Подтвердите создание задачи" in msg.text
     assert "Test Task" in msg.text
@@ -287,6 +289,7 @@ async def test_task_without_end_time(client, async_session) -> None:
     await client.send_callback("calendar:day:2026-07-20", message_text="calendar")
     await client.send_callback("task:add:2026-07-20", message_text="day view")
     await client.send_message("Open-ended Task")
+    await client.send_callback("time:hour:14", message_text="start time")
     await client.send_callback("time:14:00", message_text="start time")
     # Choose "Без времени" (null)
     msg = await client.send_callback("time:null", message_text="end time")
@@ -335,7 +338,9 @@ async def test_conflict_with_concrete_end_time(
     await client.send_callback("calendar:day:2026-08-01", message_text="calendar")
     await client.send_callback("task:add:2026-08-01", message_text="day view")
     await client.send_message("Conflicting Task")
+    await client.send_callback("time:hour:10", message_text="start time")
     await client.send_callback("time:10:00", message_text="start time")
+    await client.send_callback("time:hour:12", message_text="end time")
     await client.send_callback("time:12:00", message_text="end time")
     # Confirm → should see conflict resolution options
     msg = await client.send_callback("task:save", message_text="confirm")
@@ -384,7 +389,9 @@ async def test_conflict_with_open_ended_task(
     await client.send_callback("calendar:day:2026-08-02", message_text="calendar")
     await client.send_callback("task:add:2026-08-02", message_text="day view")
     await client.send_message("Should Conflict")
+    await client.send_callback("time:hour:10", message_text="start time")
     await client.send_callback("time:10:00", message_text="start time")
+    await client.send_callback("time:hour:12", message_text="end time")
     await client.send_callback("time:12:00", message_text="end time")
     msg = await client.send_callback("task:save", message_text="confirm")
     assert "конфликт" in msg.text.lower()
@@ -423,7 +430,9 @@ async def test_non_overlapping_no_conflict(client, async_session) -> None:
     await client.send_callback("calendar:day:2026-08-03", message_text="calendar")
     await client.send_callback("task:add:2026-08-03", message_text="day view")
     await client.send_message("Afternoon")
+    await client.send_callback("time:hour:10", message_text="start time")
     await client.send_callback("time:10:00", message_text="start time")
+    await client.send_callback("time:hour:11", message_text="end time")
     await client.send_callback("time:11:00", message_text="end time")
     msg = await client.send_callback("task:save", message_text="confirm")
     # The last message is the schedule showing both tasks
@@ -549,8 +558,10 @@ async def test_end_time_before_start_time(client) -> None:
     await client.send_callback("calendar:day:2026-07-15", message_text="calendar")
     await client.send_callback("task:add:2026-07-15", message_text="day view")
     await client.send_message("Test")
+    await client.send_callback("time:hour:14", message_text="start time")
     await client.send_callback("time:14:00", message_text="start time")
     # Choose end_time = 10:00 (before start)
+    await client.send_callback("time:hour:10", message_text="end time")
     msg = await client.send_callback("time:10:00", message_text="end time")
     assert "позже" in msg.text.lower()
 
@@ -567,7 +578,9 @@ async def test_back_from_confirm_to_end_time(client) -> None:
     await client.send_callback("calendar:day:2026-07-15", message_text="calendar")
     await client.send_callback("task:add:2026-07-15", message_text="day view")
     await client.send_message("Test")
+    await client.send_callback("time:hour:10", message_text="start time")
     await client.send_callback("time:10:00", message_text="start time")
+    await client.send_callback("time:hour:12", message_text="end time")
     await client.send_callback("time:12:00", message_text="end time")
     # We're on confirm step — go back
     msg = await client.send_callback("nav:back", message_text="confirm")
@@ -892,10 +905,15 @@ async def test_edit_start_time_auto_extension(client, async_session) -> None:
         message_text="edit field",
     )
     # Choose new start time 14:00 (old duration = 2h, expected end = 16:00)
+    await client.send_callback(
+        "time:hour:14",
+        message_text="start time selection",
+    )
     msg = await client.send_callback(
         "time:14:00",
         message_text="start time selection",
     )
+
     assert "14:00" in msg.text
     assert "16:00" in msg.text  # auto-extended
     assert "автоматически" in msg.text.lower()
@@ -944,6 +962,7 @@ async def test_edit_end_time_manual(client, async_session) -> None:
         "edit_task_field:end_time",
         message_text="edit field",
     )
+    await client.send_callback("time:hour:13", message_text="end time selection")
     await client.send_callback("time:13:00", message_text="end time selection")
 
     # Now change start_time — should NOT auto-extend
@@ -951,12 +970,17 @@ async def test_edit_end_time_manual(client, async_session) -> None:
         "edit_task_field:start_time",
         message_text="edit field",
     )
+    await client.send_callback(
+        "time:hour:14",
+        message_text="start time selection",
+    )
     msg = await client.send_callback(
         "time:14:00",
         message_text="start time selection",
     )
     # Should NOT mention auto-extension
     assert "автоматически" not in msg.text.lower()
+
 
     # Confirm and verify end_time stayed at 13:00
     await client.send_callback(
@@ -1001,11 +1025,16 @@ async def test_edit_start_time_out_of_day_bounds(client, async_session) -> None:
         "edit_task_field:start_time",
         message_text="edit field",
     )
+    await client.send_callback(
+        "time:hour:22",
+        message_text="start time selection",
+    )
     msg = await client.send_callback(
         "time:22:00",
         message_text="start time selection",
     )
     assert "границы" in msg.text.lower() or "23:59" in msg.text
+
 
     # Verify DB unchanged
     from sqlalchemy import select
@@ -1203,6 +1232,7 @@ async def test_edit_task_conflict_check(client, async_session) -> None:
         "edit_task_field:start_time",
         message_text="edit field",
     )
+    await client.send_callback("time:hour:14", message_text="start time selection")
     await client.send_callback("time:14:00", message_text="start time selection")
 
     # Confirm — should trigger conflict

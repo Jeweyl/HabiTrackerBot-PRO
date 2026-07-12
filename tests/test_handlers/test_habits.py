@@ -161,9 +161,11 @@ async def test_full_wizard_flow(
         msg = await full_client.send_message("Утренняя пробежка")
         assert "Выберите время начала" in msg.text
 
+        await full_client.send_callback("time:hour:07")
         msg = await full_client.send_callback("time:07:00")
         assert "Выберите время окончания" in msg.text
 
+        await full_client.send_callback("time:hour:08")
         msg = await full_client.send_callback("time:08:00")
         assert "Выберите периодичность" in msg.text
 
@@ -234,19 +236,24 @@ async def test_end_time_keyboard_filters_by_start_time(
     ):
         await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Чтение")
+        await full_client.send_callback("time:hour:12")
         msg = await full_client.send_callback("time:12:00")
         assert "Выберите время окончания" in msg.text
 
         keyboard = msg.reply_markup.inline_keyboard
         all_cb = {btn.callback_data for row in keyboard for btn in row}
 
-        assert "time:11:00" not in all_cb
-        assert "time:12:00" not in all_cb
-        assert "time:13:00" in all_cb
-        assert "time:23:00" in all_cb
+        # Hour step after start 12:00: hours with no slot > 12:00 are hidden
+        assert "time:hour:11" not in all_cb
+        # Hour 12 still has 12:15/30/45
+        assert "time:hour:12" in all_cb
+        assert "time:hour:13" in all_cb
+        assert "time:hour:23" in all_cb
         assert "time:null" in all_cb
         assert "nav:back" in all_cb
         assert "nav:cancel" in all_cb
+
+
 
 
 @pytest.mark.asyncio
@@ -263,6 +270,7 @@ async def test_habit_with_null_end_time(
     ):
         await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Медитация")
+        await full_client.send_callback("time:hour:09")
         await full_client.send_callback("time:09:00")
         msg = await full_client.send_callback("time:null")
         assert "Выберите периодичность" in msg.text
@@ -292,7 +300,9 @@ async def test_end_time_not_greater_than_start_time_rejected(
     ):
         await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Йога")
+        await full_client.send_callback("time:hour:12")
         await full_client.send_callback("time:12:00")
+        await full_client.send_callback("time:hour:10")
         msg = await full_client.send_callback("time:10:00")
         assert "должно быть позже" in msg.text
 
@@ -314,8 +324,82 @@ async def test_start_time_keyboard_has_no_null_option(
         keyboard = msg.reply_markup.inline_keyboard
         all_cb = {btn.callback_data for row in keyboard for btn in row}
         assert "time:null" not in all_cb
+        assert "time:hour:08" in all_cb
         assert "nav:back" in all_cb
         assert "nav:cancel" in all_cb
+
+
+@pytest.mark.asyncio
+async def test_quarter_hour_selection_and_back_from_minutes(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Select 08:15 / 08:45 and back from minutes returns to hours."""
+    user = await _create_user(async_session)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("new_habit:manual")
+        await full_client.send_message("Квартал")
+
+        # Hour → minutes keyboard
+        msg = await full_client.send_callback("time:hour:08")
+        assert "минуты" in msg.text.lower()
+        minute_cbs = {
+            btn.callback_data
+            for row in msg.reply_markup.inline_keyboard
+            for btn in row
+        }
+        assert "time:08:00" in minute_cbs
+        assert "time:08:15" in minute_cbs
+        assert "time:08:30" in minute_cbs
+        assert "time:08:45" in minute_cbs
+
+        # Back from minutes → hours again
+        msg = await full_client.send_callback("nav:back")
+        assert "время начала" in msg.text.lower()
+        hour_cbs = {
+            btn.callback_data
+            for row in msg.reply_markup.inline_keyboard
+            for btn in row
+        }
+        assert "time:hour:08" in hour_cbs
+
+        # Complete with 08:15 → 08:45
+        await full_client.send_callback("time:hour:08")
+        await full_client.send_callback("time:08:15")
+        await full_client.send_callback("time:hour:08")
+        await full_client.send_callback("time:08:45")
+        msg = await full_client.send_callback("freq:daily")
+        assert "Привычка успешно создана" in msg.text
+
+    stmt = select(Habit).where(Habit.title == "Квартал")
+    result = await async_session.execute(stmt)
+    habit = result.scalar_one()
+    assert habit.user_id == user.id
+    assert habit.start_time == time(8, 15)
+    assert habit.end_time == time(8, 45)
+
+
+@pytest.mark.asyncio
+async def test_invalid_time_callback_no_crash(
+    full_client: "TestClient",
+    async_session: AsyncSession,
+) -> None:
+    """Invalid time:xx callback answers with error and does not crash."""
+    await _create_user(async_session)
+
+    with patch(
+        "src.handlers.habits.get_db",
+        side_effect=_mock_get_db_context(async_session),
+    ):
+        await full_client.send_callback("new_habit:manual")
+        await full_client.send_message("Bad time")
+        msg = await full_client.send_callback("time:xx")
+        assert "Некорректное" in msg.text
+
 
 
 # ===================================================================
@@ -587,6 +671,7 @@ async def test_edit_habit_start_time(
         await full_client.send_callback(f"habit:select:{habit.id}")
         await full_client.send_callback(f"habit:edit:{habit.id}")
         await full_client.send_callback("edit_field:start_time")
+        await full_client.send_callback("time:hour:06")
         await full_client.send_callback("time:06:00")
 
     await async_session.refresh(habit)
@@ -612,6 +697,7 @@ async def test_edit_habit_start_time_invalid(
         await full_client.send_callback(f"habit:edit:{habit.id}")
         await full_client.send_callback("edit_field:start_time")
         # Try to set start_time = 18:00 (≥ end_time 17:00)
+        await full_client.send_callback("time:hour:18")
         msg = await full_client.send_callback("time:18:00")
         assert "должно быть раньше" in msg.text
 
@@ -637,6 +723,7 @@ async def test_edit_habit_end_time(
         await full_client.send_callback(f"habit:select:{habit.id}")
         await full_client.send_callback(f"habit:edit:{habit.id}")
         await full_client.send_callback("edit_field:end_time")
+        await full_client.send_callback("time:hour:20")
         await full_client.send_callback("time:20:00")
 
     await async_session.refresh(habit)
@@ -803,7 +890,9 @@ async def test_create_habit_no_conflict(
     ):
         await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Чтение")
+        await full_client.send_callback("time:hour:10")
         await full_client.send_callback("time:10:00")
+        await full_client.send_callback("time:hour:11")
         await full_client.send_callback("time:11:00")
         msg = await full_client.send_callback("freq:daily")
         assert "Привычка успешно создана" in msg.text
@@ -832,8 +921,10 @@ async def test_create_habit_with_conflict(
     ):
         await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Чтение")
+        await full_client.send_callback("time:hour:08")
         await full_client.send_callback("time:08:00")
         # End time after existing 09:00 → still overlaps
+        await full_client.send_callback("time:hour:09")
         msg = await full_client.send_callback("time:09:00")
         assert "Выберите периодичность" in msg.text
 
@@ -862,7 +953,9 @@ async def test_create_habit_force_add(
     ):
         await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Форс")
+        await full_client.send_callback("time:hour:08")
         await full_client.send_callback("time:08:00")
+        await full_client.send_callback("time:hour:09")
         await full_client.send_callback("time:09:00")
         await full_client.send_callback("freq:daily")
         # Now in ConflictHabitFSM
@@ -935,6 +1028,7 @@ async def test_edit_habit_time_creates_conflict(
         await full_client.send_callback(f"habit:edit:{habit_b.id}")
         await full_client.send_callback("edit_field:start_time")
         # Pick 08:00 → now overlaps with A
+        await full_client.send_callback("time:hour:08")
         msg = await full_client.send_callback("time:08:00")
         assert "конфликтует" in msg.text
 
@@ -965,6 +1059,7 @@ async def test_edit_habit_change_time_resolves(
         await full_client.send_callback(f"habit:edit:{habit_b.id}")
         await full_client.send_callback("edit_field:start_time")
         # Pick 08:00 → conflict!
+        await full_client.send_callback("time:hour:08")
         await full_client.send_callback("time:08:00")
 
         # Change time via conflict resolution
@@ -972,6 +1067,7 @@ async def test_edit_habit_change_time_resolves(
         assert "Выберите новое время начала" in msg.text
 
         # Pick 09:00 — non-conflicting (after A ends at 09:00, before B's end at 11:00)
+        await full_client.send_callback("time:hour:09")
         await full_client.send_callback("time:09:00")
 
     # B should have been updated
@@ -999,7 +1095,9 @@ async def test_conflict_keyboard_creation_buttons(
     ):
         await full_client.send_callback("new_habit:manual")
         await full_client.send_message("Y")
+        await full_client.send_callback("time:hour:08")
         await full_client.send_callback("time:08:00")
+        await full_client.send_callback("time:hour:09")
         await full_client.send_callback("time:09:00")
         msg = await full_client.send_callback("freq:daily")
 
@@ -1033,6 +1131,7 @@ async def test_conflict_keyboard_edit_buttons(
         await full_client.send_callback(f"habit:select:{habit_b.id}")
         await full_client.send_callback(f"habit:edit:{habit_b.id}")
         await full_client.send_callback("edit_field:start_time")
+        await full_client.send_callback("time:hour:08")
         msg = await full_client.send_callback("time:08:00")
 
     keyboard = msg.reply_markup.inline_keyboard

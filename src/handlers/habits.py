@@ -19,6 +19,7 @@ from src.keyboards.inline import (
     get_frequency_keyboard,
     get_habit_conflict_resolution_keyboard,
     get_main_menu_keyboard,
+    get_minute_selection_keyboard,
     get_time_selection_keyboard,
 )
 from src.services.habit_generator import generate_tasks_for_habit
@@ -34,6 +35,8 @@ from src.utils.conflict import (
     _freq_day_overlap,
     check_habit_conflicts,
 )
+from src.utils.time_picker import PENDING_HOUR_KEY, parse_time_callback
+
 
 logger = logging.getLogger(__name__)
 
@@ -254,14 +257,26 @@ async def process_title(message: Message, state: FSMContext) -> None:
 @router.callback_query(NewHabitFSM.start_time, F.data.startswith("time:"))
 async def process_start_time(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
-    time_str = callback.data.split(":", 1)[1]
-    try:
-        hour, minute = map(int, time_str.split(":"))
-        start_time = time(hour, minute)
-    except (ValueError, IndexError):
-        await callback.message.edit_text("⚠️ Некорректное время.")
+    kind, payload = parse_time_callback(callback.data)
+
+    if kind == "hour":
+        hour = int(payload)  # type: ignore[arg-type]
+        await state.update_data(**{PENDING_HOUR_KEY: hour})
+        await callback.message.edit_text(
+            f"⏰ Выберите минуты для {hour:02d}:xx:",
+            reply_markup=get_minute_selection_keyboard(hour),
+        )
         return
-    await state.update_data(start_time=start_time)
+
+    if kind != "final":
+        await callback.message.edit_text(
+            "⚠️ Некорректное время.",
+            reply_markup=get_time_selection_keyboard(),
+        )
+        return
+
+    start_time = payload  # type: ignore[assignment]
+    await state.update_data(start_time=start_time, **{PENDING_HOUR_KEY: None})
     await state.set_state(NewHabitFSM.end_time)
     await callback.message.edit_text(
         "⏰ Выберите время окончания привычки:",
@@ -276,23 +291,39 @@ async def process_end_time(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     data = await state.get_data()
     start_time: time | None = data.get("start_time")
+    kind, payload = parse_time_callback(callback.data)
 
-    if callback.data == "time:null":
-        await state.update_data(end_time=None)
+    if kind == "null":
+        await state.update_data(end_time=None, **{PENDING_HOUR_KEY: None})
         await state.set_state(NewHabitFSM.frequency)
         await callback.message.edit_text(
             "🔄 Выберите периодичность привычки:", reply_markup=get_frequency_keyboard()
         )
         return
 
-    time_str = callback.data.split(":", 1)[1]
-    try:
-        hour, minute = map(int, time_str.split(":"))
-        end_time = time(hour, minute)
-    except (ValueError, IndexError):
-        await callback.message.edit_text("⚠️ Некорректное время.")
+    if kind == "hour":
+        hour = int(payload)  # type: ignore[arg-type]
+        await state.update_data(**{PENDING_HOUR_KEY: hour})
+        await callback.message.edit_text(
+            f"⏰ Выберите минуты для {hour:02d}:xx:",
+            reply_markup=get_minute_selection_keyboard(
+                hour, min_time=start_time, show_null_option=True
+            ),
+        )
         return
+
+    if kind != "final":
+        await callback.message.edit_text(
+            "⚠️ Некорректное время.",
+            reply_markup=get_time_selection_keyboard(
+                min_time=start_time, show_null_option=True
+            ),
+        )
+        return
+
+    end_time = payload  # type: ignore[assignment]
     if start_time is not None and end_time <= start_time:
+        await state.update_data(**{PENDING_HOUR_KEY: None})
         await callback.message.edit_text(
             "⚠️ Время окончания должно быть позже времени начала.",
             reply_markup=get_time_selection_keyboard(
@@ -300,11 +331,12 @@ async def process_end_time(callback: CallbackQuery, state: FSMContext) -> None:
             ),
         )
         return
-    await state.update_data(end_time=end_time)
+    await state.update_data(end_time=end_time, **{PENDING_HOUR_KEY: None})
     await state.set_state(NewHabitFSM.frequency)
     await callback.message.edit_text(
         "🔄 Выберите периодичность привычки:", reply_markup=get_frequency_keyboard()
     )
+
 
 
 @router.callback_query(NewHabitFSM.frequency, F.data.startswith("freq:"))
@@ -677,14 +709,26 @@ async def apply_title_edit(message: Message, state: FSMContext) -> None:
 )
 async def apply_start_time_edit(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
-    time_str = callback.data.split(":", 1)[1]
-    try:
-        hour, minute = map(int, time_str.split(":"))
-        new_start_time = time(hour, minute)
-    except (ValueError, IndexError):
-        await callback.message.edit_text("⚠️ Некорректное время.")
+    kind, payload = parse_time_callback(callback.data)
+
+    if kind == "hour":
+        hour = int(payload)  # type: ignore[arg-type]
+        await state.update_data(**{PENDING_HOUR_KEY: hour})
+        await callback.message.edit_text(
+            f"🕐 Выберите минуты для {hour:02d}:xx:",
+            reply_markup=get_minute_selection_keyboard(hour),
+        )
         return
 
+    if kind != "final":
+        await callback.message.edit_text(
+            "⚠️ Некорректное время.",
+            reply_markup=get_time_selection_keyboard(),
+        )
+        return
+
+    new_start_time = payload  # type: ignore[assignment]
+    await state.update_data(**{PENDING_HOUR_KEY: None})
     fsm_data = await state.get_data()
     habit_id: int = fsm_data["edit_habit_id"]
 
@@ -741,6 +785,7 @@ async def apply_start_time_edit(callback: CallbackQuery, state: FSMContext) -> N
     )
 
 
+
 # ===================================================================
 # Apply end time — with conflict check
 # ===================================================================
@@ -751,6 +796,55 @@ async def apply_end_time_edit(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.answer()
     fsm_data = await state.get_data()
     habit_id: int = fsm_data["edit_habit_id"]
+    kind, payload = parse_time_callback(callback.data)
+
+    # Load habit early for min_time / validation
+    async with get_db() as session:
+        habit = await session.get(Habit, habit_id)
+        if habit is None:
+            await callback.message.edit_text("⚠️ Привычка не найдена.")
+            await _show_habit_list(
+                telegram_id=callback.from_user.id, target=callback.message, state=state
+            )
+            return
+        habit_start = habit.start_time
+        habit_user_id = habit.user_id
+        habit_title = habit.title
+        habit_frequency = habit.frequency
+
+    if kind == "null":
+        new_end_time: time | None = None
+    elif kind == "hour":
+        hour = int(payload)  # type: ignore[arg-type]
+        await state.update_data(**{PENDING_HOUR_KEY: hour})
+        await callback.message.edit_text(
+            f"🕐 Выберите минуты для {hour:02d}:xx:",
+            reply_markup=get_minute_selection_keyboard(
+                hour, min_time=habit_start, show_null_option=True
+            ),
+        )
+        return
+    elif kind == "final":
+        new_end_time = payload  # type: ignore[assignment]
+        if new_end_time <= habit_start:
+            await state.update_data(**{PENDING_HOUR_KEY: None})
+            await callback.message.edit_text(
+                "⚠️ Время окончания должно быть позже времени начала.",
+                reply_markup=get_time_selection_keyboard(
+                    min_time=habit_start, show_null_option=True
+                ),
+            )
+            return
+    else:
+        await callback.message.edit_text(
+            "⚠️ Некорректное время.",
+            reply_markup=get_time_selection_keyboard(
+                min_time=habit_start, show_null_option=True
+            ),
+        )
+        return
+
+    await state.update_data(**{PENDING_HOUR_KEY: None})
 
     async with get_db() as session:
         habit = await session.get(Habit, habit_id)
@@ -761,32 +855,12 @@ async def apply_end_time_edit(callback: CallbackQuery, state: FSMContext) -> Non
             )
             return
 
-        new_end_time: time | None = None
-        if callback.data == "time:null":
-            new_end_time = None
-        else:
-            time_str = callback.data.split(":", 1)[1]
-            try:
-                hour, minute = map(int, time_str.split(":"))
-                new_end_time = time(hour, minute)
-            except (ValueError, IndexError):
-                await callback.message.edit_text("⚠️ Некорректное время.")
-                return
-            if new_end_time <= habit.start_time:
-                await callback.message.edit_text(
-                    "⚠️ Время окончания должно быть позже времени начала.",
-                    reply_markup=get_time_selection_keyboard(
-                        min_time=habit.start_time, show_null_option=True
-                    ),
-                )
-                return
-
         conflicting = await check_habit_conflicts(
             session,
-            habit.user_id,
-            habit.start_time,
+            habit_user_id,
+            habit_start,
             new_end_time,
-            habit.frequency,
+            habit_frequency,
             exclude_habit_id=habit_id,
         )
         if conflicting:
@@ -794,10 +868,10 @@ async def apply_end_time_edit(callback: CallbackQuery, state: FSMContext) -> Non
             await state.set_state(ConflictHabitFSM.choose_action)
             await callback.message.edit_text(
                 _build_habit_conflict_message(
-                    habit.title,
-                    habit.start_time,
+                    habit_title,
+                    habit_start,
                     new_end_time,
-                    habit.frequency,
+                    habit_frequency,
                     conflicting,
                 ),
                 reply_markup=get_habit_conflict_resolution_keyboard(is_edit=True),
@@ -822,6 +896,7 @@ async def apply_end_time_edit(callback: CallbackQuery, state: FSMContext) -> Non
     await _show_habit_list(
         telegram_id=callback.from_user.id, target=callback.message, state=state
     )
+
 
 
 # ===================================================================
@@ -1047,9 +1122,48 @@ async def execute_delete_habit(callback: CallbackQuery, state: FSMContext) -> No
 async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     current_state = await state.get_state()
+    fsm_data = await state.get_data()
+
+    # --- Two-step time picker: back from minutes → hours ---
+    pending_hour = fsm_data.get(PENDING_HOUR_KEY)
+    if pending_hour is not None and current_state in (
+        NewHabitFSM.start_time.state,
+        NewHabitFSM.end_time.state,
+        EditHabitFSM.start_time.state,
+        EditHabitFSM.end_time.state,
+    ):
+        await state.update_data(**{PENDING_HOUR_KEY: None})
+        min_time = None
+        show_null = False
+        prompt = "⏰ Выберите время:"
+        if current_state == NewHabitFSM.start_time.state:
+            prompt = "⏰ Выберите время начала привычки:"
+        elif current_state == NewHabitFSM.end_time.state:
+            prompt = "⏰ Выберите время окончания привычки:"
+            min_time = fsm_data.get("start_time")
+            show_null = True
+        elif current_state == EditHabitFSM.start_time.state:
+            prompt = "🕐 Выберите новое время начала:"
+        elif current_state == EditHabitFSM.end_time.state:
+            prompt = "🕐 Выберите новое время окончания:"
+            show_null = True
+            habit_id = fsm_data.get("edit_habit_id")
+            if habit_id is not None:
+                async with get_db() as session:
+                    habit = await session.get(Habit, habit_id)
+                    if habit is not None:
+                        min_time = habit.start_time
+        await callback.message.edit_text(
+            prompt,
+            reply_markup=get_time_selection_keyboard(
+                min_time=min_time, show_null_option=show_null
+            ),
+        )
+        return
 
     # --- ConflictHabitFSM ---
     if current_state == ConflictHabitFSM.choose_action.state:
+
         data = await state.get_data()
         is_edit = data.get("conflict_is_edit", False)
         if is_edit:
@@ -1075,6 +1189,7 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
         )
         return
     if current_state == NewHabitFSM.end_time.state:
+        await state.update_data(**{PENDING_HOUR_KEY: None})
         await state.set_state(NewHabitFSM.start_time)
         await callback.message.edit_text(
             "⏰ Выберите время начала привычки:",
@@ -1082,8 +1197,8 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
         )
         return
     if current_state == NewHabitFSM.frequency.state:
+        await state.update_data(**{PENDING_HOUR_KEY: None})
         await state.set_state(NewHabitFSM.end_time)
-        fsm_data = await state.get_data()
         st = fsm_data.get("start_time")
         await callback.message.edit_text(
             "⏰ Выберите время окончания привычки:",
@@ -1092,6 +1207,7 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
             ),
         )
         return
+
 
     # --- HabitFSM ---
     if current_state == HabitFSM.interact_list.state:
@@ -1111,8 +1227,8 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
         EditHabitFSM.end_time.state,
         EditHabitFSM.frequency.state,
     ):
-        fsm_data = await state.get_data()
         title = fsm_data.get("edit_habit_title", "этой привычки")
+        await state.update_data(**{PENDING_HOUR_KEY: None})
         await state.set_state(EditHabitFSM.choose_field)
         await callback.message.edit_text(
             f"Что вы хотите изменить в привычке «{title}»?",
@@ -1120,8 +1236,8 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
         )
         return
     if current_state == EditHabitFSM.choose_field.state:
-        fsm_data = await state.get_data()
         from_manage_single = fsm_data.get("from_manage_single", False)
+
         if from_manage_single:
             # Return to the manage_single menu
             habit_id = fsm_data.get("edit_habit_id")

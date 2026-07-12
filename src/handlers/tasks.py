@@ -18,6 +18,7 @@ from src.keyboards.inline import (
     get_day_keyboard,
     get_edit_task_field_keyboard,
     get_main_menu_keyboard,
+    get_minute_selection_keyboard,
     get_month_calendar_keyboard,
     get_schedule_management_keyboard,
     get_simple_schedule_keyboard,
@@ -30,6 +31,8 @@ from src.keyboards.inline import (
 from src.services.habit_generator import lazy_generate_for_range
 from src.states.fsm import ConflictFSM, EditTaskFSM, MainFSM, NewTaskFSM
 from src.utils.conflict import is_time_slot_free
+from src.utils.time_picker import PENDING_HOUR_KEY, parse_time_callback
+
 
 logger = logging.getLogger(__name__)
 
@@ -263,24 +266,36 @@ async def process_task_title(message: Message, state: FSMContext) -> None:
 async def process_task_start_time(callback: CallbackQuery, state: FSMContext) -> None:
     """Store the selected start time and move to the end-time step."""
     await callback.answer()
+    kind, payload = parse_time_callback(callback.data)
 
-    if callback.data == "time:null":
+    if kind == "null":
         await callback.message.edit_text(
             "⚠️ Для времени начала необходимо выбрать конкретное время.",
+            reply_markup=get_time_selection_keyboard(),
         )
         return
 
-    time_str = callback.data.split(":", 1)[1]
-    try:
-        hour, minute = map(int, time_str.split(":"))
-        start_time = time(hour, minute)
-    except (ValueError, IndexError):
+    if kind == "hour":
+        hour = int(payload)  # type: ignore[arg-type]
+        await state.update_data(**{PENDING_HOUR_KEY: hour})
+        await callback.message.edit_text(
+            f"⏰ Выберите минуты для {hour:02d}:xx:",
+            reply_markup=get_minute_selection_keyboard(hour),
+        )
+        return
+
+    if kind != "final":
         await callback.message.edit_text(
             "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
+            reply_markup=get_time_selection_keyboard(),
         )
         return
 
-    await state.update_data(task_start_time=start_time.isoformat(timespec="minutes"))
+    start_time = payload  # type: ignore[assignment]
+    await state.update_data(
+        task_start_time=start_time.isoformat(timespec="minutes"),
+        **{PENDING_HOUR_KEY: None},
+    )
     await state.set_state(NewTaskFSM.end_time)
 
     await callback.message.edit_text(
@@ -304,23 +319,36 @@ async def process_task_end_time(callback: CallbackQuery, state: FSMContext) -> N
     data = await state.get_data()
     start_time_str: str = data.get("task_start_time", "")
     start_time = time.fromisoformat(start_time_str) if start_time_str else None
+    kind, payload = parse_time_callback(callback.data)
 
-    if callback.data == "time:null":
-        await state.update_data(task_end_time=None)
+    if kind == "null":
+        await state.update_data(task_end_time=None, **{PENDING_HOUR_KEY: None})
         await _show_task_confirm(callback, state)
         return
 
-    time_str = callback.data.split(":", 1)[1]
-    try:
-        hour, minute = map(int, time_str.split(":"))
-        end_time = time(hour, minute)
-    except (ValueError, IndexError):
+    if kind == "hour":
+        hour = int(payload)  # type: ignore[arg-type]
+        await state.update_data(**{PENDING_HOUR_KEY: hour})
         await callback.message.edit_text(
-            "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
+            f"⏰ Выберите минуты для {hour:02d}:xx:",
+            reply_markup=get_minute_selection_keyboard(
+                hour, min_time=start_time, show_null_option=True
+            ),
         )
         return
 
+    if kind != "final":
+        await callback.message.edit_text(
+            "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
+            reply_markup=get_time_selection_keyboard(
+                min_time=start_time, show_null_option=True
+            ),
+        )
+        return
+
+    end_time = payload  # type: ignore[assignment]
     if start_time is not None and end_time <= start_time:
+        await state.update_data(**{PENDING_HOUR_KEY: None})
         await callback.message.edit_text(
             "⚠️ Время окончания должно быть позже времени начала. "
             "Выберите другое время:",
@@ -330,8 +358,12 @@ async def process_task_end_time(callback: CallbackQuery, state: FSMContext) -> N
         )
         return
 
-    await state.update_data(task_end_time=end_time.isoformat(timespec="minutes"))
+    await state.update_data(
+        task_end_time=end_time.isoformat(timespec="minutes"),
+        **{PENDING_HOUR_KEY: None},
+    )
     await _show_task_confirm(callback, state)
+
 
 
 async def _show_task_confirm(
@@ -895,18 +927,28 @@ async def apply_edit_task_start_time(
 ) -> None:
     """Apply a new start time, automatically extending end_time."""
     await callback.answer()
+    kind, payload = parse_time_callback(callback.data)
 
-    time_str = callback.data.split(":", 1)[1]
-    try:
-        hour, minute = map(int, time_str.split(":"))
-        new_start_time = time(hour, minute)
-    except (ValueError, IndexError):
+    if kind == "hour":
+        hour = int(payload)  # type: ignore[arg-type]
+        await state.update_data(**{PENDING_HOUR_KEY: hour})
         await callback.message.edit_text(
-            "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
+            f"🕐 Выберите минуты для {hour:02d}:xx:",
+            reply_markup=get_minute_selection_keyboard(hour),
         )
         return
 
+    if kind != "final":
+        await callback.message.edit_text(
+            "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
+            reply_markup=get_time_selection_keyboard(),
+        )
+        return
+
+    new_start_time = payload  # type: ignore[assignment]
+    await state.update_data(**{PENDING_HOUR_KEY: None})
     data = await state.get_data()
+
     old_start_str = data.get("pending_start_time", "")
     old_end_str = data.get("pending_end_time")
     end_time_manually_set: bool = data.get("end_time_manually_set", False)
@@ -997,9 +1039,10 @@ async def apply_edit_task_end_time(
     data = await state.get_data()
     pending_start_str = data.get("pending_start_time", "")
     start_time = time.fromisoformat(pending_start_str) if pending_start_str else None
+    kind, payload = parse_time_callback(callback.data)
 
-    if callback.data == "time:null":
-        await state.update_data(pending_end_time=None)
+    if kind == "null":
+        await state.update_data(pending_end_time=None, **{PENDING_HOUR_KEY: None})
         await state.set_state(EditTaskFSM.edit_field)
         await callback.message.edit_text(
             "✅ Время окончания сброшено (без ограничения).\n"
@@ -1008,17 +1051,30 @@ async def apply_edit_task_end_time(
         )
         return
 
-    time_str = callback.data.split(":", 1)[1]
-    try:
-        hour, minute = map(int, time_str.split(":"))
-        new_end_time = time(hour, minute)
-    except (ValueError, IndexError):
+    if kind == "hour":
+        hour = int(payload)  # type: ignore[arg-type]
+        await state.update_data(**{PENDING_HOUR_KEY: hour})
         await callback.message.edit_text(
-            "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
+            f"🕐 Выберите минуты для {hour:02d}:xx:",
+            reply_markup=get_minute_selection_keyboard(
+                hour, min_time=start_time, show_null_option=True
+            ),
         )
         return
 
+    if kind != "final":
+        await callback.message.edit_text(
+            "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
+            reply_markup=get_time_selection_keyboard(
+                min_time=start_time,
+                show_null_option=True,
+            ),
+        )
+        return
+
+    new_end_time = payload  # type: ignore[assignment]
     if start_time is not None and new_end_time <= start_time:
+        await state.update_data(**{PENDING_HOUR_KEY: None})
         await callback.message.edit_text(
             "⚠️ Время окончания должно быть позже времени начала. "
             "Выберите другое время:",
@@ -1031,6 +1087,7 @@ async def apply_edit_task_end_time(
 
     await state.update_data(
         pending_end_time=new_end_time.isoformat(timespec="minutes"),
+        **{PENDING_HOUR_KEY: None},
     )
     await state.set_state(EditTaskFSM.edit_field)
     await callback.message.edit_text(
@@ -1038,6 +1095,7 @@ async def apply_edit_task_end_time(
         "Что вы хотите изменить в задаче?",
         reply_markup=get_edit_task_field_keyboard(),
     )
+
 
 
 # ===========================================================================
@@ -1329,6 +1387,31 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         EditTaskFSM.edit_start_time.state,
         EditTaskFSM.edit_end_time.state,
     ):
+        # Two-step time picker: minutes → hours first
+        data = await state.get_data()
+        if data.get(PENDING_HOUR_KEY) is not None and current_state in (
+            EditTaskFSM.edit_start_time.state,
+            EditTaskFSM.edit_end_time.state,
+        ):
+            await state.update_data(**{PENDING_HOUR_KEY: None})
+            min_time = None
+            show_null = False
+            prompt = "🕐 Выберите новое время начала:"
+            if current_state == EditTaskFSM.edit_end_time.state:
+                prompt = "🕐 Выберите новое время окончания:"
+                show_null = True
+                pending_start_str = data.get("pending_start_time", "")
+                min_time = (
+                    time.fromisoformat(pending_start_str) if pending_start_str else None
+                )
+            await callback.message.edit_text(
+                prompt,
+                reply_markup=get_time_selection_keyboard(
+                    min_time=min_time, show_null_option=show_null
+                ),
+            )
+            return
+        await state.update_data(**{PENDING_HOUR_KEY: None})
         await state.set_state(EditTaskFSM.edit_field)
         await callback.message.edit_text(
             "Что вы хотите изменить в задаче?",
@@ -1338,6 +1421,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
 
     # --- NewTaskFSM back navigation ---
     if current_state == NewTaskFSM.title.state:
+
         await state.set_state(NewTaskFSM.select_date)
         data = await state.get_data()
         iso = data.get("task_date", date.today().isoformat())
@@ -1351,6 +1435,14 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     if current_state == NewTaskFSM.start_time.state:
+        data = await state.get_data()
+        if data.get(PENDING_HOUR_KEY) is not None:
+            await state.update_data(**{PENDING_HOUR_KEY: None})
+            await callback.message.edit_text(
+                "⏰ Выберите время начала задачи:",
+                reply_markup=get_time_selection_keyboard(),
+            )
+            return
         await state.set_state(NewTaskFSM.title)
         await callback.message.answer(
             "📝 Введите название задачи (от 1 до 200 символов):",
@@ -1359,6 +1451,19 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     if current_state == NewTaskFSM.end_time.state:
+        data = await state.get_data()
+        if data.get(PENDING_HOUR_KEY) is not None:
+            await state.update_data(**{PENDING_HOUR_KEY: None})
+            st_str = data.get("task_start_time")
+            st = time.fromisoformat(st_str) if st_str else None
+            await callback.message.edit_text(
+                "⏰ Выберите время окончания задачи:",
+                reply_markup=get_time_selection_keyboard(
+                    min_time=st, show_null_option=True
+                ),
+            )
+            return
+        await state.update_data(**{PENDING_HOUR_KEY: None})
         await state.set_state(NewTaskFSM.start_time)
         await callback.message.edit_text(
             "⏰ Выберите время начала задачи:",
@@ -1367,6 +1472,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     if current_state == NewTaskFSM.confirm.state:
+        await state.update_data(**{PENDING_HOUR_KEY: None})
         await state.set_state(NewTaskFSM.end_time)
         fsm_data = await state.get_data()
         st_str = fsm_data.get("task_start_time")
@@ -1378,6 +1484,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
             ),
         )
         return
+
 
     if current_state == NewTaskFSM.select_date.state:
         await state.clear()

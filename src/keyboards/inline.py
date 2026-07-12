@@ -50,7 +50,7 @@ def get_main_menu_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
 
 
 # ---------------------------------------------------------------------------
-# Time selection keyboard — used in the New Habit wizard
+# Time selection keyboard — two-step: hour → minutes (00/15/30/45)
 # ---------------------------------------------------------------------------
 
 
@@ -58,76 +58,140 @@ def get_time_selection_keyboard(
     min_time: time | None = None,
     show_null_option: bool = False,
 ) -> InlineKeyboardMarkup:
-    """Build an inline keyboard for selecting a time of day.
-
-    Displays hours 00:00–23:00 in a 3‑column grid.  If *min_time* is
-    provided, only times strictly after *min_time* are shown.  The grid is
-    always filled to full rows (3 columns) by adding dummy non‑clickable
-    buttons.  If no time buttons remain after filtering, a single message
-    button "Нет доступных вариантов" is shown instead of the time grid.
-
-    When *show_null_option* is ``True``, the special button
-    ``⏳ Без времени`` (callback ``time:null``) is included.  Navigation
-    buttons ``⬅️ Назад`` / ``❌ Отмена`` appear on the last row.
+    """Build step-1 hour keyboard (alias for :func:`get_hour_selection_keyboard`).
 
     Args:
-        min_time: If set, hide all time buttons whose value is less than
-            or equal to *min_time*.  The ``time:null`` button is not affected.
+        min_time: If set, hide hours that have no 15-min slot strictly after
+            *min_time*.  The ``time:null`` button is not affected.
         show_null_option: Whether to include the ``⏳ Без времени`` button
             (used for end-time selection, not for start-time).
 
     Returns:
-        InlineKeyboardMarkup with the described layout.
+        InlineKeyboardMarkup with hour buttons (``time:hour:HH``).
     """
-    builder = InlineKeyboardBuilder()
+    return get_hour_selection_keyboard(
+        min_time=min_time,
+        show_null_option=show_null_option,
+    )
 
-    # 1. Collect real time buttons (respecting the filter)
+
+def get_hour_selection_keyboard(
+    min_time: time | None = None,
+    show_null_option: bool = False,
+) -> InlineKeyboardMarkup:
+    """Build an inline keyboard for selecting an hour of day (step 1).
+
+    Displays hours ``00``–``23`` in a 4-column grid.  If *min_time* is
+    provided, only hours that still have at least one allowed 15-minute
+    slot strictly after *min_time* are shown.  If no hours remain, a
+    placeholder button is shown instead of the grid.
+
+    Callbacks: ``time:hour:HH``.  Navigation: ``nav:back`` / ``nav:cancel``.
+    Optional ``time:null`` when *show_null_option* is True.
+
+    Args:
+        min_time: Hide hours with no valid quarter-hour after this time.
+        show_null_option: Include the open-ended end-time button.
+
+    Returns:
+        InlineKeyboardMarkup for hour selection.
+    """
+    from src.utils.time_picker import available_hours
+
+    builder = InlineKeyboardBuilder()
+    hours = available_hours(min_time)
     real_count = 0
-    for h in range(24):
-        slot = time(h, 0)
-        if min_time is not None and slot <= min_time:
-            continue
-        label = f"{h:02d}:00"
-        builder.button(text=label, callback_data=f"time:{label}")
+    for h in hours:
+        builder.button(text=f"{h:02d}", callback_data=f"time:hour:{h:02d}")
         real_count += 1
 
-
-    # 2. If no real time buttons — show a placeholder message
     if real_count == 0:
-        builder.button(
-            text="Нет доступных вариантов",
-            callback_data="ignore",
-        )
-        # Navigation row — two buttons always, plus null if requested
-        nav_count = 2
+        builder.button(text="Нет доступных вариантов", callback_data="ignore")
         if show_null_option:
             builder.button(text="⏳ Без времени", callback_data="time:null")
-            nav_count = 3
         builder.button(text="⬅️ Назад", callback_data="nav:back")
         builder.button(text="❌ Отмена", callback_data="nav:cancel")
-        builder.adjust(1, nav_count - 1, 2)  # message, null/nav, nav
+        if show_null_option:
+            builder.adjust(1, 1, 2)
+        else:
+            builder.adjust(1, 2)
         return builder.as_markup()
 
-    # 3. Fill to a multiple of 3 with dummy buttons
-    remainder = real_count % 3
+    # Pad to a multiple of 4
+    remainder = real_count % 4
     if remainder != 0:
-        for _ in range(3 - remainder):
+        for _ in range(4 - remainder):
             builder.button(text=" ", callback_data="ignore")
 
-    # 4. Special buttons: "Без времени" (optional) + navigation
     if show_null_option:
         builder.button(text="⏳ Без времени", callback_data="time:null")
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="❌ Отмена", callback_data="nav:cancel")
 
-    # 5. Calculate rows: padded time grid is always a multiple of 3
-    total_time = real_count + (3 - remainder if remainder else 0)
-    rows = [3] * (total_time // 3)
+    total_hours = real_count + (4 - remainder if remainder else 0)
+    rows = [4] * (total_hours // 4)
     if show_null_option:
-        rows.append(1)  # "Без времени"
-    rows.append(2)  # back + cancel
+        rows.append(1)
+    rows.append(2)
     builder.adjust(*rows)
     return builder.as_markup()
+
+
+def get_minute_selection_keyboard(
+    hour: int,
+    min_time: time | None = None,
+    show_null_option: bool = False,
+) -> InlineKeyboardMarkup:
+    """Build an inline keyboard for selecting minutes (step 2).
+
+    Shows quarter-hour options ``00 / 15 / 30 / 45`` for the given *hour*.
+    Callbacks: ``time:HH:MM``.  Filtered by *min_time* (strictly after).
+
+    Args:
+        hour: Hour chosen in step 1 (0–23).
+        min_time: Hide slots less than or equal to this time.
+        show_null_option: Include the open-ended end-time button.
+
+    Returns:
+        InlineKeyboardMarkup for minute selection.
+    """
+    from src.utils.time_picker import available_minutes
+
+    builder = InlineKeyboardBuilder()
+    minutes = available_minutes(hour, min_time)
+    real_count = 0
+    for m in minutes:
+        label = f"{m:02d}"
+        builder.button(
+            text=label,
+            callback_data=f"time:{hour:02d}:{m:02d}",
+        )
+        real_count += 1
+
+    if real_count == 0:
+        builder.button(text="Нет доступных вариантов", callback_data="ignore")
+        if show_null_option:
+            builder.button(text="⏳ Без времени", callback_data="time:null")
+        builder.button(text="⬅️ Назад", callback_data="nav:back")
+        builder.button(text="❌ Отмена", callback_data="nav:cancel")
+        if show_null_option:
+            builder.adjust(1, 1, 2)
+        else:
+            builder.adjust(1, 2)
+        return builder.as_markup()
+
+    if show_null_option:
+        builder.button(text="⏳ Без времени", callback_data="time:null")
+    builder.button(text="⬅️ Назад", callback_data="nav:back")
+    builder.button(text="❌ Отмена", callback_data="nav:cancel")
+
+    rows: list[int] = [real_count]
+    if show_null_option:
+        rows.append(1)
+    rows.append(2)
+    builder.adjust(*rows)
+    return builder.as_markup()
+
 
 
 # ---------------------------------------------------------------------------
