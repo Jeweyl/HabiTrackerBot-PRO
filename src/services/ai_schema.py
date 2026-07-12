@@ -32,18 +32,23 @@ FrequencyLiteral = Literal["daily", "weekdays", "weekends"]
 """Allowed habit frequency values."""
 
 
-def _parse_hh_mm(value: str) -> time:
+def _parse_hh_mm(value: str, *, require_grid: bool = False) -> time:
     """Parse a zero-padded ``HH:MM`` string into :class:`datetime.time`.
+
+    B5: structural parse accepts any minute 00–59 so
+    :func:`src.services.ai_normalize.normalize_plan_times` can snap to the
+    15-minute grid and surface a preview warning. Pass
+    ``require_grid=True`` for strict picker-style validation.
 
     Args:
         value: Time string expected as ``HH:MM``.
+        require_grid: If True, minutes must be in {00,15,30,45}.
 
     Returns:
         Parsed ``time`` instance.
 
     Raises:
-        ValueError: If the format is invalid or minutes are not on the
-            15-minute grid.
+        ValueError: If the format is invalid, or grid required and off-grid.
     """
     if not isinstance(value, str):
         raise ValueError("time must be a string in HH:MM format")
@@ -52,7 +57,7 @@ def _parse_hh_mm(value: str) -> time:
         raise ValueError(f"invalid time format (expected HH:MM): {value!r}")
     hour = int(match.group(1))
     minute = int(match.group(2))
-    if minute not in MINUTES_15:
+    if require_grid and minute not in MINUTES_15:
         raise ValueError(
             f"minutes must be one of :00/:15/:30/:45, got {value!r}"
         )
@@ -274,24 +279,28 @@ class ProposePlan(BaseModel):
     @field_validator("duration_minutes")
     @classmethod
     def _validate_duration(cls, value: int | None) -> int | None:
+        """Structural check only; 15-min multiples enforced in normalize (B5)."""
         if value is None:
             return None
         if not isinstance(value, int) or isinstance(value, bool):
             raise ValueError("duration_minutes must be an integer")
         if value <= 0:
             raise ValueError("duration_minutes must be positive")
-        if value % 15 != 0:
-            raise ValueError("duration_minutes must be a multiple of 15")
         return value
 
     @model_validator(mode="after")
     def _validate_duration_integrity(self) -> ProposePlan:
-        """Reject when start/end/duration disagree; never auto-fix."""
+        """Structural range check only.
+
+        B5: duration vs end-start mismatch and off-grid times are corrected
+        (or rejected) by :func:`normalize_plan_times`, not here — so preview
+        can show the final times + warning.
+        """
         if self.end_time is not None:
             start = _parse_hh_mm(self.start_time)
             end = _parse_hh_mm(self.end_time)
             try:
-                span = _minutes_between(start, end)
+                _minutes_between(start, end)
             except ValueError as exc:
                 logger.warning(
                     "AI ProposePlan rejected: invalid time range %s–%s (%s)",
@@ -300,19 +309,18 @@ class ProposePlan(BaseModel):
                     exc,
                 )
                 raise
-
-            if self.duration_minutes is not None and self.duration_minutes != span:
-                logger.warning(
-                    "AI ProposePlan rejected: duration_minutes=%s but "
-                    "end-start=%s (%s–%s); policy=reject (no auto-fix)",
+            # Mismatch is OK at schema layer; normalize will recompute end.
+            if (
+                self.duration_minutes is not None
+                and self.duration_minutes
+                != (end.hour * 60 + end.minute - (start.hour * 60 + start.minute))
+            ):
+                logger.info(
+                    "AI ProposePlan duration mismatch deferred to normalize: "
+                    "duration_minutes=%s end-start span differs (%s–%s)",
                     self.duration_minutes,
-                    span,
                     self.start_time,
                     self.end_time,
-                )
-                raise ValueError(
-                    f"duration_minutes ({self.duration_minutes}) must equal "
-                    f"end-start ({span}) minutes"
                 )
         return self
 
@@ -382,24 +390,23 @@ class ProposeTaskPlan(BaseModel):
     @field_validator("duration_minutes")
     @classmethod
     def _validate_duration(cls, value: int | None) -> int | None:
+        """Structural check only; 15-min multiples enforced in normalize (B5)."""
         if value is None:
             return None
         if not isinstance(value, int) or isinstance(value, bool):
             raise ValueError("duration_minutes must be an integer")
         if value <= 0:
             raise ValueError("duration_minutes must be positive")
-        if value % 15 != 0:
-            raise ValueError("duration_minutes must be a multiple of 15")
         return value
 
     @model_validator(mode="after")
     def _validate_duration_integrity(self) -> ProposeTaskPlan:
-        """Reject when start/end/duration disagree; never auto-fix."""
+        """Structural range check only (B5: mismatch → normalize)."""
         if self.end_time is not None:
             start = _parse_hh_mm(self.start_time)
             end = _parse_hh_mm(self.end_time)
             try:
-                span = _minutes_between(start, end)
+                _minutes_between(start, end)
             except ValueError as exc:
                 logger.warning(
                     "AI ProposeTaskPlan rejected: invalid time range %s–%s (%s)",
@@ -408,19 +415,17 @@ class ProposeTaskPlan(BaseModel):
                     exc,
                 )
                 raise
-
-            if self.duration_minutes is not None and self.duration_minutes != span:
-                logger.warning(
-                    "AI ProposeTaskPlan rejected: duration_minutes=%s but "
-                    "end-start=%s (%s–%s); policy=reject (no auto-fix)",
+            if (
+                self.duration_minutes is not None
+                and self.duration_minutes
+                != (end.hour * 60 + end.minute - (start.hour * 60 + start.minute))
+            ):
+                logger.info(
+                    "AI ProposeTaskPlan duration mismatch deferred to normalize: "
+                    "duration_minutes=%s (%s–%s)",
                     self.duration_minutes,
-                    span,
                     self.start_time,
                     self.end_time,
-                )
-                raise ValueError(
-                    f"duration_minutes ({self.duration_minutes}) must equal "
-                    f"end-start ({span}) minutes"
                 )
         return self
 

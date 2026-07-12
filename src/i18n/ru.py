@@ -124,6 +124,10 @@ STRINGS: dict[str, str] = {
         "<b>Комментарий:</b> {comment}\n\n"
         "Создать эту задачу?"
     ),
+    "task_ai.time_corrected_warning": (
+        "⚠️ <b>Время скорректировано под сетку 15 мин:</b> {details}"
+    ),
+
     "task_ai.created": (
         "✅ Задача успешно создана!\n\n"
         "<b>{title}</b>\n"

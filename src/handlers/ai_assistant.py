@@ -37,12 +37,14 @@ from src.keyboards.inline import (
     get_skip_only_keyboard,
 )
 from src.services.ai_apply import apply_propose_plan, resolve_plan_schedule
+from src.services.ai_normalize import normalize_plan_times
 from src.services.ai_schema import (
     AskQuestions,
     ClarifyingQuestion,
     ProposePlan,
     normalize_question,
 )
+
 from src.services.ai_service import (
     MAX_CLARIFYING_ROUNDS,
     build_multiturn_prompt,
@@ -338,8 +340,15 @@ async def _present_next_question(
         await event.answer(text, reply_markup=markup)
 
 
-def _format_plan_preview(plan: ProposePlan | dict[str, Any]) -> str:
-    """Soft preview text for a ProposePlan (no DB write)."""
+def _format_plan_preview(
+    plan: ProposePlan | dict[str, Any],
+    *,
+    warnings: list[str] | None = None,
+) -> str:
+    """Soft preview text for a ProposePlan (no DB write).
+
+    B5: *plan* should already be normalized; *warnings* list corrections.
+    """
     if isinstance(plan, ProposePlan):
         data = plan.model_dump()
     else:
@@ -355,15 +364,24 @@ def _format_plan_preview(plan: ProposePlan | dict[str, Any]) -> str:
     time_line = f"{start}" + (f"–{end}" if end else "")
     duration_line = f"{duration} мин" if duration is not None else "—"
 
+    warning_block = ""
+    if warnings:
+        details = "; ".join(warnings)
+        warning_block = (
+            f"\n⚠️ *Время скорректировано под сетку 15 мин:* {details}\n"
+        )
+
     return (
         "🤖 *Предложенный план (черновик):*\n\n"
         f"*Привычка:* {title}\n"
         f"*Время:* {time_line}\n"
         f"*Частота:* {freq}\n"
         f"*Длительность:* {duration_line}\n"
-        f"*Комментарий:* {comment}\n\n"
+        f"*Комментарий:* {comment}\n"
+        f"{warning_block}\n"
         "Создать привычку на основе этого плана?"
     )
+
 
 
 # ---------------------------------------------------------------------------
@@ -493,7 +511,20 @@ async def _run_ai_turn(
             return
 
     if isinstance(ai_response, ProposePlan):
-        plan_data = ai_response.model_dump()
+        # B5: normalize times before preview/FSM so confirm applies final times
+        norm = normalize_plan_times(ai_response, kind="habit")
+        if not norm.ok or not norm.plan:
+            logger.warning(
+                "AI ProposePlan failed normalize: %s", norm.error
+            )
+            await _deliver_ai_result(
+                placeholder,
+                event,
+                AI_UNAVAILABLE_TEXT,
+                reply_markup=get_ai_fallback_keyboard(),
+            )
+            return
+        plan_data = norm.plan
         await state.update_data(
             proposed_plan=plan_data,
             pending_questions=[],
@@ -503,11 +534,12 @@ async def _run_ai_turn(
         await _deliver_ai_result(
             placeholder,
             event,
-            _format_plan_preview(ai_response),
+            _format_plan_preview(plan_data, warnings=norm.warnings),
             reply_markup=get_ai_plan_confirm_keyboard(),
             parse_mode="Markdown",
         )
         return
+
 
     # Unexpected type
     await _deliver_ai_result(

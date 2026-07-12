@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Habit, Task, User, UserAIState
+from src.services.ai_normalize import normalize_plan_times
 from src.services.ai_schema import (
     ProposePlan,
     ProposeTaskPlan,
@@ -26,6 +27,7 @@ from src.services.habit_generator import generate_tasks_for_habit
 from src.utils.conflict import check_habit_conflicts, is_time_slot_free
 from src.utils.time_picker import MINUTES_15
 from src.utils.timezone import local_now
+
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +100,10 @@ def resolve_plan_schedule(
 ) -> ResolvedSchedule | None:
     """Resolve title/start/end/frequency from a ProposePlan-like payload.
 
-    Priority:
-      1. Top-level plan fields
+    B5: runs :func:`normalize_plan_times` first (snap grid, duration wins,
+    correct+warn). Then:
+
+      1. Top-level (normalized) plan fields
       2. First ``schedule_ops`` entry of op ``set_schedule`` (fills gaps only)
       3. ``end_time`` derived from ``start_time + duration_minutes``
 
@@ -117,14 +121,14 @@ def resolve_plan_schedule(
         return None
 
     if isinstance(plan, ProposePlan):
-        data = plan.model_dump()
+        raw = plan.model_dump()
     elif isinstance(plan, dict):
-        data = plan
+        raw = dict(plan)
     else:
         return None
 
-    # Optional schedule_ops fill-in (first set_schedule only)
-    ops = data.get("schedule_ops") or []
+    # Optional schedule_ops fill-in before normalize (first set_schedule only)
+    ops = raw.get("schedule_ops") or []
     op0: dict[str, Any] = {}
     if isinstance(ops, list) and ops:
         first = ops[0]
@@ -135,68 +139,62 @@ def resolve_plan_schedule(
             if dumped.get("op") == "set_schedule":
                 op0 = dumped
 
-    title_raw = data.get("title") or fallback_title or ""
+    if not raw.get("start_time") and op0.get("start_time"):
+        raw["start_time"] = op0.get("start_time")
+    if not raw.get("end_time") and op0.get("end_time"):
+        raw["end_time"] = op0.get("end_time")
+    if raw.get("frequency") is None and op0.get("frequency"):
+        raw["frequency"] = op0.get("frequency")
+
+    title_raw = raw.get("title") or fallback_title or ""
     if not isinstance(title_raw, str):
         title_raw = str(title_raw) if title_raw else ""
     title = title_raw.strip()[:200]
     if not title:
         return None
+    raw["title"] = title
 
+    norm = normalize_plan_times(raw, kind="habit")
+    if not norm.ok or not norm.plan:
+        logger.warning(
+            "resolve_plan_schedule: normalize failed: %s", norm.error
+        )
+        return None
+
+    data = norm.plan
     start = _safe_parse_hh_mm(data.get("start_time"))
-    if start is None:
-        start = _safe_parse_hh_mm(op0.get("start_time"))
-    if start is None:
-        logger.warning("resolve_plan_schedule: missing/invalid start_time")
-        return None
-
     end = _safe_parse_hh_mm(data.get("end_time"))
-    if end is None:
-        end = _safe_parse_hh_mm(op0.get("end_time"))
-
     duration = data.get("duration_minutes")
-    if duration is not None:
-        try:
-            duration = int(duration)
-        except (TypeError, ValueError):
-            duration = None
-        if duration is not None and (
-            duration <= 0 or duration % 15 != 0 or isinstance(duration, bool)
-        ):
-            duration = None
 
-    if end is None:
-        if duration is None:
-            logger.warning(
-                "resolve_plan_schedule: no end_time and no duration_minutes"
-            )
-            return None
-        try:
-            end = _add_minutes(start, duration)
-        except ValueError as exc:
-            logger.warning("resolve_plan_schedule: cannot derive end: %s", exc)
-            return None
-    else:
-        # Validate range; if duration also set, they must agree (no auto-fix)
-        try:
-            span = _minutes_between(start, end)
-        except ValueError as exc:
-            logger.warning("resolve_plan_schedule: invalid range: %s", exc)
-            return None
-        if duration is not None and duration != span:
-            logger.warning(
-                "resolve_plan_schedule: duration_minutes=%s != end-start=%s",
-                duration,
-                span,
-            )
-            return None
-        duration = span
-
-    # end minutes must stay on 15-min grid (derived end always is if start+duration are)
-    if end.minute not in MINUTES_15:
-        logger.warning("resolve_plan_schedule: end minutes not on 15-min grid")
+    if start is None or end is None or duration is None:
+        logger.warning(
+            "resolve_plan_schedule: incomplete after normalize "
+            "start=%r end=%r duration=%r",
+            data.get("start_time"),
+            data.get("end_time"),
+            duration,
+        )
         return None
 
-    frequency = data.get("frequency") or op0.get("frequency") or "daily"
+    if end.minute not in MINUTES_15 or start.minute not in MINUTES_15:
+        logger.warning("resolve_plan_schedule: times not on 15-min grid")
+        return None
+
+    try:
+        span = _minutes_between(start, end)
+    except ValueError as exc:
+        logger.warning("resolve_plan_schedule: invalid range: %s", exc)
+        return None
+    if int(duration) != span:
+        # Should not happen after normalize; defensive
+        logger.warning(
+            "resolve_plan_schedule: post-normalize mismatch duration=%s span=%s",
+            duration,
+            span,
+        )
+        return None
+
+    frequency = data.get("frequency") or "daily"
     if frequency not in VALID_FREQUENCIES:
         frequency = "daily"
 
@@ -207,6 +205,7 @@ def resolve_plan_schedule(
         frequency=str(frequency),
         duration_minutes=int(duration),
     )
+
 
 
 async def apply_propose_plan(
@@ -380,12 +379,11 @@ def resolve_task_plan(
 ) -> ResolvedTaskSchedule | None:
     """Resolve title/date/start/end from a ProposeTaskPlan-like payload.
 
-    Priority for end_time:
-      1. Explicit end_time
-      2. start_time + duration_minutes
+    B5: runs :func:`normalize_plan_times` (kind=task) first. Open-ended tasks
+    (no end, no duration) remain allowed.
 
     Date: plan.date if valid, else *default_date*. Does not create habits.
-    Returns ``None`` when start cannot be determined or duration integrity fails.
+    Returns ``None`` when start cannot be determined or normalize rejects.
 
     Args:
         plan: ProposeTaskPlan instance, dict dump, or None.
@@ -399,63 +397,56 @@ def resolve_task_plan(
         return None
 
     if isinstance(plan, ProposeTaskPlan):
-        data = plan.model_dump()
+        raw = plan.model_dump()
     elif isinstance(plan, dict):
-        data = plan
+        raw = dict(plan)
     else:
         return None
 
-    title_raw = data.get("title") or fallback_title or ""
+    title_raw = raw.get("title") or fallback_title or ""
     if not isinstance(title_raw, str):
         title_raw = str(title_raw) if title_raw else ""
     title = title_raw.strip()[:200]
     if not title:
         return None
+    raw["title"] = title
 
+    norm = normalize_plan_times(raw, kind="task")
+    if not norm.ok or not norm.plan:
+        logger.warning("resolve_task_plan: normalize failed: %s", norm.error)
+        return None
+
+    data = norm.plan
     start = _safe_parse_hh_mm(data.get("start_time"))
     if start is None:
         logger.warning("resolve_task_plan: missing/invalid start_time")
         return None
 
     end = _safe_parse_hh_mm(data.get("end_time"))
-
     duration = data.get("duration_minutes")
     if duration is not None:
         try:
             duration = int(duration)
         except (TypeError, ValueError):
             duration = None
-        if duration is not None and (
-            duration <= 0 or duration % 15 != 0 or isinstance(duration, bool)
-        ):
-            duration = None
 
-    if end is None:
-        if duration is not None:
-            try:
-                end = _add_minutes(start, duration)
-            except ValueError as exc:
-                logger.warning("resolve_task_plan: cannot derive end: %s", exc)
-                return None
-        # else: open-ended task (end_time=None) is allowed for tasks
-    else:
+    if end is not None:
+        if end.minute not in MINUTES_15 or start.minute not in MINUTES_15:
+            logger.warning("resolve_task_plan: times not on 15-min grid")
+            return None
         try:
             span = _minutes_between(start, end)
         except ValueError as exc:
             logger.warning("resolve_task_plan: invalid range: %s", exc)
             return None
-        if duration is not None and duration != span:
+        if duration is not None and int(duration) != span:
             logger.warning(
-                "resolve_task_plan: duration_minutes=%s != end-start=%s",
+                "resolve_task_plan: post-normalize mismatch duration=%s span=%s",
                 duration,
                 span,
             )
             return None
         duration = span
-
-    if end is not None and end.minute not in MINUTES_15:
-        logger.warning("resolve_task_plan: end minutes not on 15-min grid")
-        return None
 
     task_date: date | None = None
     raw_date = data.get("date")
@@ -481,6 +472,7 @@ def resolve_task_plan(
         end_time=end,
         duration_minutes=int(duration) if duration is not None else None,
     )
+
 
 
 async def apply_propose_task_plan(

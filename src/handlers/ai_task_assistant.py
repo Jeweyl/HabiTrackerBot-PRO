@@ -36,7 +36,9 @@ from src.keyboards.inline import (
 )
 
 from src.services.ai_apply import apply_propose_task_plan, resolve_task_plan
+from src.services.ai_normalize import normalize_plan_times
 from src.services.ai_schema import (
+
     AskQuestions,
     ClarifyingQuestion,
     ProposeTaskPlan,
@@ -351,8 +353,12 @@ def _format_task_plan_preview(
     *,
     default_date: str | None = None,
     lang: str = "ru",
+    warnings: list[str] | None = None,
 ) -> str:
-    """Soft preview text for a ProposeTaskPlan (no DB write)."""
+    """Soft preview text for a ProposeTaskPlan (no DB write).
+
+    B5: *plan* should already be normalized; *warnings* list corrections.
+    """
     if isinstance(plan, ProposeTaskPlan):
         data = plan.model_dump()
     else:
@@ -370,7 +376,7 @@ def _format_task_plan_preview(
         t("common.minutes", lang, n=duration) if duration is not None else "—"
     )
 
-    return t(
+    body = t(
         "task_ai.preview",
         lang,
         title=title,
@@ -379,6 +385,13 @@ def _format_task_plan_preview(
         duration=duration_line,
         comment=comment,
     )
+    if warnings:
+        details = "; ".join(warnings)
+        warn = t("task_ai.time_corrected_warning", lang, details=details)
+        # Insert warning before the final confirm question line
+        body = body.rstrip() + f"\n\n{warn}"
+    return body
+
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +515,20 @@ async def _run_ai_turn(
             return
 
     if isinstance(ai_response, ProposeTaskPlan):
-        plan_data = ai_response.model_dump()
+        # B5: normalize times before preview/FSM so confirm applies final times
+        norm = normalize_plan_times(ai_response, kind="task")
+        if not norm.ok or not norm.plan:
+            logger.warning(
+                "AI ProposeTaskPlan failed normalize: %s", norm.error
+            )
+            await _deliver_ai_result(
+                placeholder,
+                event,
+                t("task_ai.unavailable", language),
+                reply_markup=get_ai_task_fallback_keyboard(language),
+            )
+            return
+        plan_data = norm.plan
         await state.update_data(
             proposed_plan=plan_data,
             pending_questions=[],
@@ -513,14 +539,16 @@ async def _run_ai_turn(
             placeholder,
             event,
             _format_task_plan_preview(
-                ai_response,
+                plan_data,
                 default_date=str(default_date or ""),
                 lang=language,
+                warnings=norm.warnings,
             ),
             reply_markup=get_ai_task_plan_confirm_keyboard(language),
             parse_mode="HTML",
         )
         return
+
 
     # Unexpected type (e.g. ProposePlan habit) — treat as unavailable
     await _deliver_ai_result(

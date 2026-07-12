@@ -144,20 +144,9 @@ def test_parse_ai_response_valid(
         # Missing / unknown type
         ({"title": "x", "start_time": "08:00"}, "missing_type"),
         ({"type": "unknown", "title": "x"}, "unknown_type"),
-        # Invalid times
-        (_valid_propose_plan(start_time="08:07"), "start_not_15min"),
-        (_valid_propose_plan(end_time="08:07", duration_minutes=None), "end_not_15min"),
+        # Invalid times (format only; off-grid deferred to normalize in B5)
         (_valid_propose_plan(start_time="8:00"), "unpadded_hour"),
         (_valid_propose_plan(start_time="25:00"), "invalid_hour"),
-        # Duration integrity: 15 but 08:00–09:00 → reject
-        (
-            _valid_propose_plan(
-                start_time="08:00",
-                end_time="09:00",
-                duration_minutes=15,
-            ),
-            "duration_mismatch",
-        ),
         # end before start
         (
             _valid_propose_plan(
@@ -176,15 +165,7 @@ def test_parse_ai_response_valid(
             ),
             "overnight",
         ),
-        # duration not multiple of 15
-        (
-            _valid_propose_plan(
-                end_time=None,
-                duration_minutes=20,
-            ),
-            "duration_not_multiple_15",
-        ),
-        # non-positive duration
+        # non-positive duration (still structural reject)
         (
             _valid_propose_plan(end_time=None, duration_minutes=0),
             "duration_zero",
@@ -206,14 +187,6 @@ def test_parse_ai_response_valid(
             ),
             "bad_schedule_op",
         ),
-        (
-            _valid_propose_plan(
-                schedule_ops=[
-                    {"op": "set_schedule", "start_time": "08:07"}
-                ]
-            ),
-            "schedule_op_bad_time",
-        ),
     ],
     ids=[
         "null",
@@ -225,14 +198,10 @@ def test_parse_ai_response_valid(
         "json_string_scalar",
         "missing_type",
         "unknown_type",
-        "start_not_15min",
-        "end_not_15min",
         "unpadded_hour",
         "invalid_hour",
-        "duration_mismatch",
         "end_before_start",
         "overnight",
-        "duration_not_multiple_15",
         "duration_zero",
         "duration_negative",
         "empty_title",
@@ -240,35 +209,40 @@ def test_parse_ai_response_valid(
         "empty_questions",
         "blank_questions",
         "bad_schedule_op",
-        "schedule_op_bad_time",
     ],
 )
+
 def test_parse_ai_response_rejects(raw: Any, reason: str) -> None:
     """Invalid / untrusted payloads must return None and never raise."""
     result = parse_ai_response(raw)
     assert result is None, f"expected None for case {reason!r}, got {result!r}"
 
 
-def test_duration_mismatch_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """Duration mismatch policy: reject + log (no auto-fix)."""
+def test_duration_mismatch_parses_for_normalize(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """B5: duration mismatch is deferred to normalize (schema accepts)."""
     raw = _valid_propose_plan(
         start_time="08:00",
         end_time="09:00",
         duration_minutes=15,
     )
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         result = parse_ai_response(raw)
 
-    assert result is None
-    assert any(
-        "duration" in record.message.lower() or "reject" in record.message.lower()
-        for record in caplog.records
+    assert isinstance(result, ProposePlan)
+    assert result.duration_minutes == 15
+    assert result.end_time == "09:00"
+
+
+def test_invalid_time_08_07_parses_for_normalize() -> None:
+    """B5: 08:07 is structurally valid; normalize snaps to grid."""
+    result = parse_ai_response(
+        _valid_propose_plan(start_time="08:07", end_time="08:37", duration_minutes=30)
     )
+    assert isinstance(result, ProposePlan)
+    assert result.start_time == "08:07"
 
-
-def test_invalid_time_08_07_rejected() -> None:
-    """Explicit acceptance criterion: 08:07 must be rejected."""
-    assert parse_ai_response(_valid_propose_plan(start_time="08:07")) is None
 
 
 def test_parse_never_raises_on_garbage() -> None:
@@ -403,7 +377,8 @@ def test_parse_propose_task_date_optional() -> None:
     assert result.date is None
 
 
-def test_parse_propose_task_duration_mismatch_rejected() -> None:
+def test_parse_propose_task_duration_mismatch_accepted() -> None:
+    """B5: mismatch deferred to normalize."""
     result = parse_ai_response(
         _valid_propose_task(
             start_time="14:00",
@@ -411,7 +386,8 @@ def test_parse_propose_task_duration_mismatch_rejected() -> None:
             duration_minutes=15,
         )
     )
-    assert result is None
+    assert isinstance(result, ProposeTaskPlan)
+    assert result.duration_minutes == 15
 
 
 def test_parse_propose_task_invalid_date_rejected() -> None:
@@ -419,9 +395,12 @@ def test_parse_propose_task_invalid_date_rejected() -> None:
     assert result is None
 
 
-def test_parse_propose_task_invalid_time_rejected() -> None:
-    result = parse_ai_response(_valid_propose_task(start_time="14:07"))
-    assert result is None
+def test_parse_propose_task_off_grid_time_accepted() -> None:
+    """B5: off-grid start is structural OK; normalize snaps later."""
+    result = parse_ai_response(_valid_propose_task(start_time="14:07", end_time="14:37"))
+    assert isinstance(result, ProposeTaskPlan)
+    assert result.start_time == "14:07"
+
 
 
 def test_habit_propose_plan_still_works() -> None:

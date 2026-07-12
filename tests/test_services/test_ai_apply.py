@@ -62,16 +62,21 @@ def test_resolve_start_end_duration_consistent() -> None:
     assert resolved.frequency == "weekdays"
 
 
-def test_resolve_duration_mismatch_rejected() -> None:
-    """Disagreeing duration vs end-start → None (no auto-fix)."""
+def test_resolve_duration_mismatch_corrected() -> None:
+    """B5: disagreeing duration vs end-start → duration wins (correct+show)."""
     plan = {
-        "title": "Bad",
+        "title": "Fixed",
         "start_time": "08:00",
-        "end_time": "08:30",
-        "duration_minutes": 15,
+        "end_time": "08:10",
+        "duration_minutes": 30,
         "frequency": "daily",
     }
-    assert resolve_plan_schedule(plan) is None
+    resolved = resolve_plan_schedule(plan)
+    assert resolved is not None
+    assert resolved.start_time == time(8, 0)
+    assert resolved.end_time == time(8, 30)
+    assert resolved.duration_minutes == 30
+
 
 
 def test_resolve_missing_end_and_duration_no_hardcoded() -> None:
@@ -117,6 +122,21 @@ def test_resolve_invalid_frequency_defaults_daily() -> None:
     resolved = resolve_plan_schedule(plan)
     assert resolved is not None
     assert resolved.frequency == "daily"
+
+
+def test_resolve_off_grid_start_snapped() -> None:
+    """B5: 08:07 start snaps to 08:00 when duration set."""
+    plan = {
+        "title": "Snap",
+        "start_time": "08:07",
+        "duration_minutes": 30,
+        "frequency": "daily",
+    }
+    resolved = resolve_plan_schedule(plan)
+    assert resolved is not None
+    assert resolved.start_time == time(8, 0)
+    assert resolved.end_time == time(8, 30)
+
 
 
 def test_resolve_schedule_ops_fill_start() -> None:
@@ -407,15 +427,21 @@ def test_resolve_task_default_date() -> None:
     assert resolved.task_date == date(2026, 1, 5)
 
 
-def test_resolve_task_duration_mismatch() -> None:
+def test_resolve_task_duration_mismatch_corrected() -> None:
+    """B5: duration wins over mismatched end for tasks."""
     plan = {
-        "title": "Bad",
+        "title": "Fixed",
         "date": "2026-07-12",
         "start_time": "10:00",
-        "end_time": "10:30",
-        "duration_minutes": 15,
+        "end_time": "10:10",
+        "duration_minutes": 30,
     }
-    assert resolve_task_plan(plan) is None
+    resolved = resolve_task_plan(plan)
+    assert resolved is not None
+    assert resolved.start_time == time(10, 0)
+    assert resolved.end_time == time(10, 30)
+    assert resolved.duration_minutes == 30
+
 
 
 def test_resolve_task_open_ended_allowed() -> None:
