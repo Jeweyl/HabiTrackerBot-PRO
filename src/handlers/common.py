@@ -6,13 +6,15 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 
 from src.config import settings
 from src.db.models import User
 from src.db.session import get_db
+from src.i18n import normalize_lang, t
 from src.keyboards.inline import (
-    MAIN_MENU_BUTTONS,
+    get_main_menu_buttons,
     get_main_menu_keyboard,
     get_new_habit_choice_keyboard,
 )
@@ -28,6 +30,7 @@ def _build_start_text(
     bot_public_url: str = "",
     channel_url: str = "",
     original_bot_username: str = "",
+    lang: str = "ru",
 ) -> str:
     """Build the selling /start onboarding message (HTML).
 
@@ -38,54 +41,66 @@ def _build_start_text(
         bot_public_url: Public t.me URL of this bot.
         channel_url: Public channel URL.
         original_bot_username: Original bot username without ``@``.
+        lang: User language code.
 
     Returns:
         HTML-formatted onboarding text ending with a CTA to the main menu.
     """
+    code = normalize_lang(lang)
     parts: list[str] = [
-        "👋 <b>HabiTracker</b> — бот для привычек и расписания.",
+        t("start.title", code),
         "",
-        "Формируйте привычки, получайте задачи на день и отмечайте выполнение.",
-        "AI-ассистент поможет превратить «хочу больше двигаться» "
-        "в конкретную SMART-цель — без конфликтов времени в календаре.",
+        t("start.body", code),
         "",
-        "🚀 <b>Как начать</b>",
-        "1. Нажмите «➕ Создать привычку»",
-        "2. Выберите вручную или с помощью AI",
-        "3. Бот сам поставит задачи в расписание",
+        t("start.how_to_title", code),
+        t("start.how_to_1", code),
+        t("start.how_to_2", code),
+        t("start.how_to_3", code),
     ]
 
     link_lines: list[str] = []
     username = (original_bot_username or "").strip().lstrip("@")
     if username:
-        link_lines.append(f"• Оригинал: @{username}")
+        link_lines.append(t("start.link_original", code, username=username))
     channel = (channel_url or "").strip()
     if channel:
-        link_lines.append(f"• Канал: {channel}")
+        link_lines.append(t("start.link_channel", code, url=channel))
     bot_url = (bot_public_url or "").strip()
     if bot_url:
-        link_lines.append(f"• Бот: {bot_url}")
+        link_lines.append(t("start.link_bot", code, url=bot_url))
 
     if link_lines:
-        parts.extend(["", "🔗 <b>Ссылки</b>", *link_lines])
+        parts.extend(["", t("start.links_title", code), *link_lines])
 
-    parts.extend(["", "Выберите действие:"])
+    parts.extend(["", t("start.cta", code)])
     return "\n".join(parts)
 
 
-def _get_button_label(callback_data: str) -> str:
+def _get_button_label(callback_data: str, lang: str = "ru") -> str:
     """Look up the human-readable label for a main menu callback_data value.
 
     Args:
         callback_data: The callback_data string (e.g. ``main_menu:habits``).
+        lang: User language code.
 
     Returns:
         The corresponding button label, or the raw callback_data if not found.
     """
-    for label, data in MAIN_MENU_BUTTONS:
+    for label, data in get_main_menu_buttons(lang):
         if data == callback_data:
             return label
     return callback_data
+
+
+async def _get_user_language(telegram_id: int) -> str:
+    """Return stored language for *telegram_id*, defaulting to ``ru``."""
+    async with get_db() as session:
+        stmt = select(User).where(User.telegram_id == telegram_id)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user is None:
+            return "ru"
+        return normalize_lang(user.language)
 
 
 @router.message(Command("start"))
@@ -102,6 +117,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     """
     telegram_id = message.from_user.id
     username = message.from_user.username
+    lang = "ru"
 
     async with get_db() as session:
         stmt = select(User).where(User.telegram_id == telegram_id)
@@ -118,9 +134,11 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             session.add(user)
             await session.commit()
             logger.info("Created new user with telegram_id=%d", telegram_id)
+            lang = "ru"
         else:
             # Keep username in sync and touch updated_at
             user.username = username
+            lang = normalize_lang(user.language)
             await session.commit()
             logger.info("Updated existing user with telegram_id=%d", telegram_id)
 
@@ -131,10 +149,10 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             bot_public_url=settings.BOT_PUBLIC_URL,
             channel_url=settings.CHANNEL_URL,
             original_bot_username=settings.ORIGINAL_BOT_USERNAME,
+            lang=lang,
         ),
-        reply_markup=get_main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(lang),
     )
-
 
 
 # ===========================================================================
@@ -145,11 +163,12 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 @router.message(F.text == "🏠 Меню")
 async def menu_reply_keyboard(message: Message, state: FSMContext) -> None:
     """Handle the persistent reply keyboard 'Меню' button."""
+    lang = await _get_user_language(message.from_user.id)
     await state.clear()
     await state.set_state(MainFSM.main_menu)
     await message.answer(
-        "🏠 Главное меню бота\nВыберите действие:",
-        reply_markup=get_main_menu_keyboard(),
+        t("main.menu", lang),
+        reply_markup=get_main_menu_keyboard(lang),
     )
 
 
@@ -169,27 +188,15 @@ async def handle_main_menu_help(callback: CallbackQuery, state: FSMContext) -> N
     """
     await callback.answer()
     await state.set_state(MainFSM.main_menu)
-
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    lang = await _get_user_language(callback.from_user.id)
 
     builder = InlineKeyboardBuilder()
-    builder.button(text="🔙 Назад", callback_data="nav:cancel")
+    builder.button(text=t("common.back", lang), callback_data="nav:cancel")
     keyboard = builder.as_markup()
 
-    help_text = (
-        "📖 *Как пользоваться ботом:*\n\n"
-        "• *➕ Создать привычку* — создайте новую привычку вручную "
-        "или с помощью ИИ-ассистента\n"
-        "• *📋 Привычки* — просмотр и управление вашими привычками\n"
-        "• *📊 Статистика* — просмотр статистики выполнения привычек\n"
-        "• *⚙️ Настройки* — настройка языка, часового пояса, напоминаний\n"
-        "• *❓ Помощь* — вы здесь!\n\n"
-        "По вопросам: @support"
-    )
     await callback.message.edit_text(
-        help_text,
+        t("help.text", lang),
         reply_markup=keyboard,
-        parse_mode="Markdown",
     )
 
 
@@ -205,8 +212,9 @@ async def handle_main_menu_new_habit(
     """
     await callback.answer()
     await state.set_state(MainFSM.main_menu)
+    lang = await _get_user_language(callback.from_user.id)
     await callback.message.edit_text(
-        "Выберите способ создания привычки:",
+        t("main.new_habit_choice", lang),
         reply_markup=get_new_habit_choice_keyboard(),
     )
 
@@ -223,10 +231,11 @@ async def handle_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
         state: FSM context for the current user.
     """
     await callback.answer()
+    lang = await _get_user_language(callback.from_user.id)
 
-    label = _get_button_label(callback.data)
+    label = _get_button_label(callback.data, lang)
     await callback.message.edit_text(
-        f"Функция '{label}' находится в разработке. Следите за обновлениями!",
+        t("main.under_development", lang, label=label),
     )
 
     # Ensure the state remains on the main menu
@@ -247,11 +256,12 @@ async def handle_cancel_fallback(callback: CallbackQuery, state: FSMContext) -> 
     the habit list, schedule view, or main menu itself.
     """
     await callback.answer()
+    lang = await _get_user_language(callback.from_user.id)
     await state.clear()
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
-        "🏠 Главное меню бота\nВыберите действие:",
-        reply_markup=get_main_menu_keyboard(),
+        t("main.menu", lang),
+        reply_markup=get_main_menu_keyboard(lang),
     )
 
 
@@ -264,11 +274,12 @@ async def handle_cancel_fallback(callback: CallbackQuery, state: FSMContext) -> 
 async def handle_input_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     """Cancel the current text-input flow and return to the main menu."""
     await callback.answer()
+    lang = await _get_user_language(callback.from_user.id)
     await state.clear()
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
-        "❌ Действие отменено.",
-        reply_markup=get_main_menu_keyboard(),
+        t("common.cancelled", lang),
+        reply_markup=get_main_menu_keyboard(lang),
     )
 
 
@@ -276,9 +287,10 @@ async def handle_input_cancel(callback: CallbackQuery, state: FSMContext) -> Non
 async def handle_input_goto_main(callback: CallbackQuery, state: FSMContext) -> None:
     """Silently exit the text-input flow and go to the main menu."""
     await callback.answer()
+    lang = await _get_user_language(callback.from_user.id)
     await state.clear()
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
-        "🏠 Главное меню бота\nВыберите действие:",
-        reply_markup=get_main_menu_keyboard(),
+        t("main.menu", lang),
+        reply_markup=get_main_menu_keyboard(lang),
     )

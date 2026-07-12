@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from src.db.models import Task, User
 from src.db.session import get_db
+from src.i18n import normalize_lang, t
 
 logger = logging.getLogger(__name__)
 
@@ -17,13 +18,12 @@ router = Router()
 """Router for check-in yes/no callbacks."""
 
 
-async def _get_user_id(telegram_id: int, session) -> int | None:
-    """Look up the internal user ID by Telegram ID."""
+async def _get_user(telegram_id: int, session) -> User | None:
+    """Look up the user by Telegram ID."""
     result = await session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
-    user = result.scalar_one_or_none()
-    return user.id if user else None
+    return result.scalar_one_or_none()
 
 
 @router.callback_query(F.data.startswith("checkin:yes:"))
@@ -32,19 +32,20 @@ async def checkin_yes(callback: CallbackQuery) -> None:
     try:
         task_id = int(callback.data.split(":")[2])
     except (IndexError, ValueError):
-        await callback.answer("Некорректные данные.", show_alert=True)
+        await callback.answer(t("checkin.invalid", "ru"), show_alert=True)
         return
 
     async with get_db() as session:
-        user_id = await _get_user_id(callback.from_user.id, session)
-        if user_id is None:
-            await callback.answer("Пользователь не найден.", show_alert=True)
+        user = await _get_user(callback.from_user.id, session)
+        if user is None:
+            await callback.answer(t("checkin.user_not_found", "ru"), show_alert=True)
             return
 
+        lang = normalize_lang(user.language)
         task = await session.get(Task, task_id)
-        if task is None or task.user_id != user_id:
+        if task is None or task.user_id != user.id:
             await callback.answer(
-                "⛔ Задача не найдена или недоступна.",
+                t("checkin.task_not_found", lang),
                 show_alert=True,
             )
             return
@@ -53,9 +54,11 @@ async def checkin_yes(callback: CallbackQuery) -> None:
         await session.commit()
         title = task.title
 
-    await callback.answer("✅ Отмечено выполненным")
+    await callback.answer(t("checkin.yes_toast", lang))
     try:
-        await callback.message.edit_text(f'✅ «{title}» отмечено выполненным.')
+        await callback.message.edit_text(
+            t("checkin.yes_ack", lang, title=title)
+        )
     except Exception:
         logger.warning(
             "Could not edit check-in message after yes for task_id=%s",
@@ -74,19 +77,20 @@ async def checkin_no(callback: CallbackQuery) -> None:
     try:
         task_id = int(callback.data.split(":")[2])
     except (IndexError, ValueError):
-        await callback.answer("Некорректные данные.", show_alert=True)
+        await callback.answer(t("checkin.invalid", "ru"), show_alert=True)
         return
 
     async with get_db() as session:
-        user_id = await _get_user_id(callback.from_user.id, session)
-        if user_id is None:
-            await callback.answer("Пользователь не найден.", show_alert=True)
+        user = await _get_user(callback.from_user.id, session)
+        if user is None:
+            await callback.answer(t("checkin.user_not_found", "ru"), show_alert=True)
             return
 
+        lang = normalize_lang(user.language)
         task = await session.get(Task, task_id)
-        if task is None or task.user_id != user_id:
+        if task is None or task.user_id != user.id:
             await callback.answer(
-                "⛔ Задача не найдена или недоступна.",
+                t("checkin.task_not_found", lang),
                 show_alert=True,
             )
             return
@@ -95,11 +99,15 @@ async def checkin_no(callback: CallbackQuery) -> None:
         title = task.title
         is_completed = task.is_completed
 
-    await callback.answer("Ок, напомним позже")
+    await callback.answer(t("checkin.no_toast", lang))
     try:
-        status = "уже выполнено" if is_completed else "пока не выполнено"
+        status = (
+            t("checkin.status_done", lang)
+            if is_completed
+            else t("checkin.status_pending", lang)
+        )
         await callback.message.edit_text(
-            f'❌ «{title}» — {status}. Напомним позже.'
+            t("checkin.no_ack", lang, title=title, status=status)
         )
     except Exception:
         logger.warning(

@@ -7,7 +7,9 @@ from sqlalchemy import select
 
 from src.db.models import User
 from src.db.session import get_db
+from src.i18n import normalize_lang, t
 from src.utils.timezone import local_now
+
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +47,9 @@ async def process_reminders(bot: Bot) -> int:
             try:
                 await bot.send_message(
                     chat_id=user.telegram_id,
-                    text=(
-                        "⏰ Напоминание\n"
-                        "Пора отметить привычки и задачи на сегодня.\n"
-                        "Откройте бота и проверьте расписание."
-                    ),
+                    text=t("reminder.text", normalize_lang(user.language)),
                 )
+
             except Exception as exc:
                 logger.warning(
                     "Failed to send reminder to telegram_id=%s: %s",

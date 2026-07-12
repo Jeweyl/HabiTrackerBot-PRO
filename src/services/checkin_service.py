@@ -12,8 +12,10 @@ from sqlalchemy import select
 from src.db.models import Task, User
 
 from src.db.session import get_db
+from src.i18n import normalize_lang, t
 from src.keyboards.inline import get_checkin_keyboard
 from src.utils.timezone import local_now
+
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +70,10 @@ def is_checkin_due(
     return (local_dt - last_local) >= timedelta(minutes=interval_minutes)
 
 
-def _checkin_text(title: str) -> str:
+def _checkin_text(title: str, lang: str = "ru") -> str:
     """Build the check-in prompt text for a task title."""
-    return f'Выполнили «{title}»?'
+    return t("checkin.prompt", normalize_lang(lang), title=title)
+
 
 
 async def process_checkins(bot: Bot) -> int:
@@ -127,9 +130,10 @@ async def process_checkins(bot: Bot) -> int:
                 try:
                     await bot.send_message(
                         chat_id=user.telegram_id,
-                        text=_checkin_text(task.title),
+                        text=_checkin_text(task.title, user.language),
                         reply_markup=get_checkin_keyboard(task.id),
                     )
+
                 except Exception as exc:
                     logger.warning(
                         "Failed to send check-in to telegram_id=%s task_id=%s: %s",
