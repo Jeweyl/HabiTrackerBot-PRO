@@ -15,10 +15,15 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import Habit, User, UserAIState
-from src.services.ai_schema import ProposePlan, _minutes_between, _parse_hh_mm
+from src.db.models import Habit, Task, User, UserAIState
+from src.services.ai_schema import (
+    ProposePlan,
+    ProposeTaskPlan,
+    _minutes_between,
+    _parse_hh_mm,
+)
 from src.services.habit_generator import generate_tasks_for_habit
-from src.utils.conflict import check_habit_conflicts
+from src.utils.conflict import check_habit_conflicts, is_time_slot_free
 from src.utils.time_picker import MINUTES_15
 from src.utils.timezone import local_now
 
@@ -331,4 +336,232 @@ async def apply_propose_plan(
             exc_info=True,
         )
         # Re-raise so the caller's get_db() rolls back partial habit/tasks.
+        raise
+
+
+# ---------------------------------------------------------------------------
+# B4: one-off task apply (no Habit)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ResolvedTaskSchedule:
+    """Concrete fields ready to persist as a single Task."""
+
+    title: str
+    task_date: date
+    start_time: time
+    end_time: time | None
+    duration_minutes: int | None
+
+
+@dataclass
+class TaskApplyResult:
+    """Outcome of applying a ProposeTaskPlan.
+
+    Attributes:
+        status: ``ok`` | ``conflict`` | ``error``.
+        task: Created task when ``status == "ok"``.
+        error: Human-readable error when ``status == "error"``.
+        resolved: Resolved schedule when parse succeeded.
+    """
+
+    status: Literal["ok", "conflict", "error"]
+    task: Task | None = None
+    error: str | None = None
+    resolved: ResolvedTaskSchedule | None = None
+
+
+def resolve_task_plan(
+    plan: ProposeTaskPlan | dict[str, Any] | None,
+    *,
+    fallback_title: str | None = None,
+    default_date: date | None = None,
+) -> ResolvedTaskSchedule | None:
+    """Resolve title/date/start/end from a ProposeTaskPlan-like payload.
+
+    Priority for end_time:
+      1. Explicit end_time
+      2. start_time + duration_minutes
+
+    Date: plan.date if valid, else *default_date*. Does not create habits.
+    Returns ``None`` when start cannot be determined or duration integrity fails.
+
+    Args:
+        plan: ProposeTaskPlan instance, dict dump, or None.
+        fallback_title: Title used when plan title is missing/empty.
+        default_date: Fallback date when plan omits date.
+
+    Returns:
+        ResolvedTaskSchedule or None.
+    """
+    if plan is None:
+        return None
+
+    if isinstance(plan, ProposeTaskPlan):
+        data = plan.model_dump()
+    elif isinstance(plan, dict):
+        data = plan
+    else:
+        return None
+
+    title_raw = data.get("title") or fallback_title or ""
+    if not isinstance(title_raw, str):
+        title_raw = str(title_raw) if title_raw else ""
+    title = title_raw.strip()[:200]
+    if not title:
+        return None
+
+    start = _safe_parse_hh_mm(data.get("start_time"))
+    if start is None:
+        logger.warning("resolve_task_plan: missing/invalid start_time")
+        return None
+
+    end = _safe_parse_hh_mm(data.get("end_time"))
+
+    duration = data.get("duration_minutes")
+    if duration is not None:
+        try:
+            duration = int(duration)
+        except (TypeError, ValueError):
+            duration = None
+        if duration is not None and (
+            duration <= 0 or duration % 15 != 0 or isinstance(duration, bool)
+        ):
+            duration = None
+
+    if end is None:
+        if duration is not None:
+            try:
+                end = _add_minutes(start, duration)
+            except ValueError as exc:
+                logger.warning("resolve_task_plan: cannot derive end: %s", exc)
+                return None
+        # else: open-ended task (end_time=None) is allowed for tasks
+    else:
+        try:
+            span = _minutes_between(start, end)
+        except ValueError as exc:
+            logger.warning("resolve_task_plan: invalid range: %s", exc)
+            return None
+        if duration is not None and duration != span:
+            logger.warning(
+                "resolve_task_plan: duration_minutes=%s != end-start=%s",
+                duration,
+                span,
+            )
+            return None
+        duration = span
+
+    if end is not None and end.minute not in MINUTES_15:
+        logger.warning("resolve_task_plan: end minutes not on 15-min grid")
+        return None
+
+    task_date: date | None = None
+    raw_date = data.get("date")
+    if isinstance(raw_date, date) and not isinstance(raw_date, datetime):
+        task_date = raw_date
+    elif isinstance(raw_date, str) and raw_date.strip():
+        try:
+            task_date = date.fromisoformat(raw_date.strip())
+        except ValueError:
+            logger.warning("resolve_task_plan: invalid date %r", raw_date)
+            task_date = None
+
+    if task_date is None:
+        task_date = default_date
+    if task_date is None:
+        logger.warning("resolve_task_plan: missing date and default_date")
+        return None
+
+    return ResolvedTaskSchedule(
+        title=title,
+        task_date=task_date,
+        start_time=start,
+        end_time=end,
+        duration_minutes=int(duration) if duration is not None else None,
+    )
+
+
+async def apply_propose_task_plan(
+    session: AsyncSession,
+    user: User,
+    plan: ProposeTaskPlan | dict[str, Any] | None,
+    *,
+    force: bool = False,
+    fallback_title: str | None = None,
+    default_date: date | None = None,
+) -> TaskApplyResult:
+    """Create a single Task from a confirmed ProposeTaskPlan (no Habit).
+
+    Transactional within the caller's *session* (caller commits). Does not
+    overwrite conflicting tasks unless *force* is True.
+
+    Args:
+        session: Active async DB session (caller owns commit/rollback).
+        user: Persisted User row.
+        plan: ProposeTaskPlan or dict from FSM.
+        force: If True, skip conflict blocking and create anyway.
+        fallback_title: Title fallback when plan title empty.
+        default_date: Date fallback when plan omits date.
+
+    Returns:
+        TaskApplyResult with status ok / conflict / error.
+    """
+    try:
+        resolved = resolve_task_plan(
+            plan,
+            fallback_title=fallback_title,
+            default_date=default_date,
+        )
+    except Exception:
+        logger.error("resolve_task_plan raised", exc_info=True)
+        resolved = None
+
+    if resolved is None:
+        return TaskApplyResult(
+            status="error",
+            error="Некорректный план: не удалось определить время задачи.",
+        )
+
+    try:
+        if not force:
+            free = await is_time_slot_free(
+                session,
+                user.id,
+                resolved.task_date,
+                resolved.start_time,
+                resolved.end_time,
+            )
+            if not free:
+                return TaskApplyResult(
+                    status="conflict",
+                    resolved=resolved,
+                )
+
+        task = Task(
+            user_id=user.id,
+            habit_id=None,
+            title=resolved.title,
+            date=resolved.task_date,
+            start_time=resolved.start_time,
+            end_time=resolved.end_time,
+            is_completed=False,
+            is_placeholder=False,
+        )
+        session.add(task)
+        await session.flush()
+
+        return TaskApplyResult(
+            status="ok",
+            task=task,
+            resolved=resolved,
+        )
+    except Exception as exc:
+        logger.error(
+            "apply_propose_task_plan failed for user %s: %s",
+            getattr(user, "id", None),
+            exc,
+            exc_info=True,
+        )
         raise

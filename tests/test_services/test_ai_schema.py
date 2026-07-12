@@ -12,9 +12,11 @@ from src.services.ai_schema import (
     AskQuestions,
     ClarifyingQuestion,
     ProposePlan,
+    ProposeTaskPlan,
     normalize_question,
     parse_ai_response,
 )
+
 
 
 
@@ -358,5 +360,74 @@ def test_normalize_question_garbage_returns_none() -> None:
     assert normalize_question("") is None
     assert normalize_question(42) is None
     assert normalize_question({"kind": "choice"}) is None  # missing text
+
+
+# ---------------------------------------------------------------------------
+# B4: ProposeTaskPlan
+# ---------------------------------------------------------------------------
+
+
+def _valid_propose_task(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "type": "propose_task",
+        "title": "Team call",
+        "date": "2026-07-12",
+        "start_time": "14:00",
+        "end_time": "14:30",
+        "duration_minutes": 30,
+        "comment": "Keep it short.",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_parse_propose_task_valid() -> None:
+    """Valid propose_task dict parses to ProposeTaskPlan."""
+    result = parse_ai_response(_valid_propose_task())
+    assert isinstance(result, ProposeTaskPlan)
+    assert result.title == "Team call"
+    assert result.date == "2026-07-12"
+    assert result.start_time == "14:00"
+    assert result.end_time == "14:30"
+    assert result.duration_minutes == 30
+
+
+def test_parse_propose_task_json_string() -> None:
+    result = parse_ai_response(json.dumps(_valid_propose_task()))
+    assert isinstance(result, ProposeTaskPlan)
+
+
+def test_parse_propose_task_date_optional() -> None:
+    result = parse_ai_response(_valid_propose_task(date=None))
+    assert isinstance(result, ProposeTaskPlan)
+    assert result.date is None
+
+
+def test_parse_propose_task_duration_mismatch_rejected() -> None:
+    result = parse_ai_response(
+        _valid_propose_task(
+            start_time="14:00",
+            end_time="15:00",
+            duration_minutes=15,
+        )
+    )
+    assert result is None
+
+
+def test_parse_propose_task_invalid_date_rejected() -> None:
+    result = parse_ai_response(_valid_propose_task(date="12-07-2026"))
+    assert result is None
+
+
+def test_parse_propose_task_invalid_time_rejected() -> None:
+    result = parse_ai_response(_valid_propose_task(start_time="14:07"))
+    assert result is None
+
+
+def test_habit_propose_plan_still_works() -> None:
+    """Habit ProposePlan path must not regress after B4 union change."""
+    result = parse_ai_response(_valid_propose_plan())
+    assert isinstance(result, ProposePlan)
+
 
 

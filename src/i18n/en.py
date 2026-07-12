@@ -93,4 +93,61 @@ STRINGS: dict[str, str] = {
     "checkin.task_not_found": "⛔ Task not found or unavailable.",
     "checkin.yes_toast": "✅ Marked as completed",
     "checkin.no_toast": "OK, we'll remind you later",
+    # --- task AI assistant (B4) ---
+    "task_ai.choice_title": "Choose how to add a task:",
+    "task_ai.btn_manual": "✍️ Add manually",
+    "task_ai.btn_ai": "🤖 Ask the assistant",
+    "task_ai.btn_manual_create": "✍️ Create manually",
+    "task_ai.prompt_title": (
+        "What task should we add? Describe it in one phrase "
+        "(e.g. 'Team call for 30 minutes')."
+    ),
+    "task_ai.prompt_title_dated": (
+        "Task for {date}. Describe it in one phrase "
+        "(e.g. 'Team call for 30 minutes')."
+    ),
+    "task_ai.title_empty": "Please describe the task (at least 1 character).",
+    "task_ai.title_too_long": (
+        "Description is too long. Please keep it under 200 characters."
+    ),
+    "task_ai.waiting": "⏳ Finding a slot for the task… This may take up to 30 seconds.",
+    "task_ai.unavailable": (
+        "🤖 AI is temporarily unavailable. "
+        "Try again later or create the task manually."
+    ),
+    "task_ai.preview": (
+        "🤖 <b>Proposed task (draft):</b>\n\n"
+        "<b>Task:</b> {title}\n"
+        "<b>Date:</b> {date}\n"
+        "<b>Time:</b> {time}\n"
+        "<b>Duration:</b> {duration}\n"
+        "<b>Comment:</b> {comment}\n\n"
+        "Create this task?"
+    ),
+    "task_ai.created": (
+        "✅ Task created successfully!\n\n"
+        "<b>{title}</b>\n"
+        "Date: {date}\n"
+        "Time: {time}"
+    ),
+    "task_ai.declined": "Alright, maybe another time!",
+    "task_ai.invalid_plan": (
+        "Invalid plan: could not determine the task time. "
+        "Try again or create it manually."
+    ),
+    "task_ai.save_failed": (
+        "Could not save the task. Try again later or create it manually."
+    ),
+    "task_ai.conflict": (
+        "⚠️ Task «{title}» ({date}, {time}) conflicts with existing tasks.\n\n"
+        "Choose an action:"
+    ),
+    "task_ai.clarify_fallback": "Please clarify.",
+    "task_ai.clarify_text_hint": "(type an answer or tap Skip)",
+    "task_ai.clarify_time_hint": "(pick a time in 15-minute steps)",
+    "task_ai.skip": "⏭ Skip",
+    "task_ai.yes": "✅ Yes",
+    "task_ai.no": "❌ No",
 }
+
+

@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from src.db.models import Habit, Task, User
 from src.db.session import get_db
+from src.i18n import t
 from src.keyboards.inline import (
     get_cancel_input_keyboard,
     get_conflict_resolution_keyboard,
@@ -20,6 +21,7 @@ from src.keyboards.inline import (
     get_main_menu_keyboard,
     get_minute_selection_keyboard,
     get_month_calendar_keyboard,
+    get_new_task_choice_keyboard,
     get_schedule_management_keyboard,
     get_simple_schedule_keyboard,
     get_task_action_keyboard,
@@ -28,6 +30,7 @@ from src.keyboards.inline import (
     get_tasks_completion_keyboard,
     get_time_selection_keyboard,
 )
+
 from src.services.habit_generator import lazy_generate_for_range
 from src.states.fsm import ConflictFSM, EditTaskFSM, MainFSM, NewTaskFSM
 from src.utils.conflict import is_time_slot_free
@@ -131,7 +134,19 @@ async def _show_schedule(
 
 @router.callback_query(F.data == "main_menu:new_task")
 async def start_new_task(callback: CallbackQuery, state: FSMContext) -> None:
-    """Start the task creation wizard by showing the calendar."""
+    """Start task creation: choose manual calendar flow or AI assistant."""
+    await callback.answer()
+    await state.clear()
+    await state.set_state(MainFSM.main_menu)
+    await callback.message.edit_text(
+        t("task_ai.choice_title", "ru"),
+        reply_markup=get_new_task_choice_keyboard("ru"),
+    )
+
+
+@router.callback_query(F.data == "new_task:manual")
+async def start_new_task_manual(callback: CallbackQuery, state: FSMContext) -> None:
+    """Manual path: show the calendar for date selection."""
     await callback.answer()
     today = date.today()
     await state.set_state(NewTaskFSM.select_date)
@@ -139,6 +154,7 @@ async def start_new_task(callback: CallbackQuery, state: FSMContext) -> None:
         "📅 Выберите дату для задачи:",
         reply_markup=get_month_calendar_keyboard(today.year, today.month),
     )
+
 
 
 # ===========================================================================
@@ -497,9 +513,21 @@ async def _persist_task(
 
 @router.callback_query(ConflictFSM.choose_action, F.data == "conflict:force_add")
 async def conflict_force_add(callback: CallbackQuery, state: FSMContext) -> None:
-    """Force-add the task despite the time conflict."""
+    """Force-add the task despite the time conflict.
+
+    AI task path sets ``ai_task_apply`` and is handled in
+    ``ai_task_assistant`` (registered after this router). When that flag
+    is set we skip so the AI handler can apply ProposeTaskPlan.
+    """
+    from aiogram.dispatcher.event.bases import SkipHandler
+
+    data = await state.get_data()
+    if data.get("ai_task_apply"):
+        raise SkipHandler()
+
     await callback.answer()
     await _conflict_save_and_show(callback, state)
+
 
 
 @router.callback_query(ConflictFSM.choose_action, F.data == "conflict:edit_schedule")

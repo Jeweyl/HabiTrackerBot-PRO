@@ -11,9 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import Habit, Task, User
 from src.services.ai_apply import (
     apply_propose_plan,
+    apply_propose_task_plan,
     resolve_plan_schedule,
+    resolve_task_plan,
 )
-from src.services.ai_schema import ProposePlan
+from src.services.ai_schema import ProposePlan, ProposeTaskPlan
+
 
 
 # ---------------------------------------------------------------------------
@@ -367,3 +370,162 @@ async def test_apply_duration_only_end_equals_start_plus_duration(
     assert result.habit is not None
     assert result.habit.start_time == time(21, 0)
     assert result.habit.end_time == time(21, 15)
+
+
+# ---------------------------------------------------------------------------
+# B4: resolve_task_plan / apply_propose_task_plan
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_task_duration_derives_end() -> None:
+    plan = {
+        "type": "propose_task",
+        "title": "Call",
+        "date": "2026-07-12",
+        "start_time": "10:00",
+        "end_time": None,
+        "duration_minutes": 30,
+    }
+    resolved = resolve_task_plan(plan)
+    assert resolved is not None
+    assert resolved.start_time == time(10, 0)
+    assert resolved.end_time == time(10, 30)
+    assert resolved.duration_minutes == 30
+    assert resolved.task_date == date(2026, 7, 12)
+    assert resolved.title == "Call"
+
+
+def test_resolve_task_default_date() -> None:
+    plan = {
+        "title": "X",
+        "start_time": "09:00",
+        "end_time": "09:15",
+        "duration_minutes": 15,
+    }
+    resolved = resolve_task_plan(plan, default_date=date(2026, 1, 5))
+    assert resolved is not None
+    assert resolved.task_date == date(2026, 1, 5)
+
+
+def test_resolve_task_duration_mismatch() -> None:
+    plan = {
+        "title": "Bad",
+        "date": "2026-07-12",
+        "start_time": "10:00",
+        "end_time": "10:30",
+        "duration_minutes": 15,
+    }
+    assert resolve_task_plan(plan) is None
+
+
+def test_resolve_task_open_ended_allowed() -> None:
+    """Tasks may be open-ended (no end, no duration)."""
+    plan = {
+        "title": "Open",
+        "date": "2026-07-12",
+        "start_time": "11:00",
+        "end_time": None,
+        "duration_minutes": None,
+    }
+    resolved = resolve_task_plan(plan)
+    assert resolved is not None
+    assert resolved.end_time is None
+
+
+@pytest.mark.asyncio
+async def test_apply_task_creates_one_task_no_habit(
+    async_session: AsyncSession,
+) -> None:
+    """Happy path: one Task with habit_id=None, zero new Habits."""
+    user = await _make_user(async_session, telegram_id=100)
+    plan = ProposeTaskPlan(
+        type="propose_task",
+        title="Dentist",
+        date="2026-07-20",
+        start_time="15:00",
+        end_time="15:45",
+        duration_minutes=45,
+        comment="",
+    )
+    result = await apply_propose_task_plan(async_session, user, plan)
+    await async_session.commit()
+
+    assert result.status == "ok"
+    assert result.task is not None
+    assert result.task.habit_id is None
+    assert result.task.title == "Dentist"
+    assert result.task.date == date(2026, 7, 20)
+    assert result.task.start_time == time(15, 0)
+    assert result.task.end_time == time(15, 45)
+
+    habit_count = await async_session.scalar(select(func.count()).select_from(Habit))
+    task_count = await async_session.scalar(select(func.count()).select_from(Task))
+    assert int(habit_count or 0) == 0
+    assert int(task_count or 0) == 1
+
+
+@pytest.mark.asyncio
+async def test_apply_task_conflict_no_write(async_session: AsyncSession) -> None:
+    user = await _make_user(async_session, telegram_id=101)
+    async_session.add(
+        Task(
+            user_id=user.id,
+            habit_id=None,
+            title="Existing",
+            date=date(2026, 7, 20),
+            start_time=time(15, 0),
+            end_time=time(16, 0),
+        )
+    )
+    await async_session.commit()
+
+    plan = {
+        "type": "propose_task",
+        "title": "Overlap",
+        "date": "2026-07-20",
+        "start_time": "15:30",
+        "end_time": "15:45",
+        "duration_minutes": 15,
+    }
+    result = await apply_propose_task_plan(async_session, user, plan)
+    await async_session.commit()
+
+    assert result.status == "conflict"
+    count = await async_session.scalar(select(func.count()).select_from(Task))
+    assert int(count or 0) == 1
+
+
+@pytest.mark.asyncio
+async def test_apply_task_force_overrides_conflict(
+    async_session: AsyncSession,
+) -> None:
+    user = await _make_user(async_session, telegram_id=102)
+    async_session.add(
+        Task(
+            user_id=user.id,
+            habit_id=None,
+            title="Existing",
+            date=date(2026, 7, 21),
+            start_time=time(10, 0),
+            end_time=time(11, 0),
+        )
+    )
+    await async_session.commit()
+
+    plan = {
+        "title": "Forced",
+        "date": "2026-07-21",
+        "start_time": "10:30",
+        "end_time": "10:45",
+        "duration_minutes": 15,
+    }
+    result = await apply_propose_task_plan(async_session, user, plan, force=True)
+    await async_session.commit()
+
+    assert result.status == "ok"
+    assert result.task is not None
+    assert result.task.habit_id is None
+    count = await async_session.scalar(select(func.count()).select_from(Task))
+    assert int(count or 0) == 2
+
+

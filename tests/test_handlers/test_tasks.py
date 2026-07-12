@@ -184,10 +184,13 @@ async def _create_task(session, *, user_id, date_val, start, end, title="Test"):
 @pytest.mark.asyncio
 async def test_calendar_month_navigation(client) -> None:
     """Switching months updates the calendar message."""
-    # Start task creation → calendar appears
+    # Start task creation → choice → manual calendar
     msg = await client.send_callback("main_menu:new_task")
+    assert "способ" in msg.text.lower() or "задач" in msg.text.lower()
+    msg = await client.send_callback("new_task:manual")
     assert "Выберите дату" in msg.text
     assert msg.reply_markup is not None
+
 
     # Navigate to next month
     msg = await client.send_callback("calendar:month:2026:8", message_text="calendar")
@@ -208,6 +211,7 @@ async def test_calendar_day_selection(client) -> None:
     """Selecting a day shows the day keyboard."""
     # Start task creation
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
 
     # Select a day
     msg = await client.send_callback("calendar:day:2026-07-15", message_text="calendar")
@@ -235,6 +239,7 @@ async def test_full_task_creation_with_end_time(
     """Create a task end-to-end: date → title → start → end → confirm → save."""
     # 1. Start wizard → calendar
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
 
     # 2. Pick a day → day keyboard
     await client.send_callback("calendar:day:2026-07-15", message_text="calendar")
@@ -286,6 +291,7 @@ async def test_full_task_creation_with_end_time(
 async def test_task_without_end_time(client, async_session) -> None:
     """Create a task with end_time=None (open-ended)."""
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
     await client.send_callback("calendar:day:2026-07-20", message_text="calendar")
     await client.send_callback("task:add:2026-07-20", message_text="day view")
     await client.send_message("Open-ended Task")
@@ -335,6 +341,7 @@ async def test_conflict_with_concrete_end_time(
 
     # Try to add 10:00–12:00 (overlaps)
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
     await client.send_callback("calendar:day:2026-08-01", message_text="calendar")
     await client.send_callback("task:add:2026-08-01", message_text="day view")
     await client.send_message("Conflicting Task")
@@ -386,6 +393,7 @@ async def test_conflict_with_open_ended_task(
 
     # Try to add 10:00–12:00 (overlaps with open-ended)
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
     await client.send_callback("calendar:day:2026-08-02", message_text="calendar")
     await client.send_callback("task:add:2026-08-02", message_text="day view")
     await client.send_message("Should Conflict")
@@ -427,6 +435,7 @@ async def test_non_overlapping_no_conflict(client, async_session) -> None:
 
     # Add 10:00–11:00 (touching but not overlapping)
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
     await client.send_callback("calendar:day:2026-08-03", message_text="calendar")
     await client.send_callback("task:add:2026-08-03", message_text="day view")
     await client.send_message("Afternoon")
@@ -502,6 +511,7 @@ async def test_view_schedule_with_tasks(client, async_session) -> None:
 async def test_cancel_during_title_step(client) -> None:
     """Cancelling while entering the title returns to the main menu."""
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
     await client.send_callback("calendar:day:2026-07-15", message_text="calendar")
     await client.send_callback("task:add:2026-07-15", message_text="day view")
     # We're in title step — cancel
@@ -513,6 +523,7 @@ async def test_cancel_during_title_step(client) -> None:
 async def test_cancel_during_start_time_step(client) -> None:
     """Cancelling while selecting start_time returns to the main menu."""
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
     await client.send_callback("calendar:day:2026-07-15", message_text="calendar")
     await client.send_callback("task:add:2026-07-15", message_text="day view")
     await client.send_message("Test Task")
@@ -530,6 +541,7 @@ async def test_cancel_during_start_time_step(client) -> None:
 async def test_title_validation_empty(client) -> None:
     """Empty title should be rejected."""
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
     await client.send_callback("calendar:day:2026-07-15", message_text="calendar")
     await client.send_callback("task:add:2026-07-15", message_text="day view")
     msg = await client.send_message("")
@@ -540,6 +552,7 @@ async def test_title_validation_empty(client) -> None:
 async def test_title_validation_too_long(client) -> None:
     """Title longer than 200 chars should be rejected."""
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
     await client.send_callback("calendar:day:2026-07-15", message_text="calendar")
     await client.send_callback("task:add:2026-07-15", message_text="day view")
     msg = await client.send_message("A" * 201)
@@ -555,6 +568,7 @@ async def test_title_validation_too_long(client) -> None:
 async def test_end_time_before_start_time(client) -> None:
     """Selecting end_time <= start_time should show an error."""
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
     await client.send_callback("calendar:day:2026-07-15", message_text="calendar")
     await client.send_callback("task:add:2026-07-15", message_text="day view")
     await client.send_message("Test")
@@ -575,6 +589,7 @@ async def test_end_time_before_start_time(client) -> None:
 async def test_back_from_confirm_to_end_time(client) -> None:
     """Back button on confirm step returns to end_time selection."""
     await client.send_callback("main_menu:new_task")
+    await client.send_callback("new_task:manual")
     await client.send_callback("calendar:day:2026-07-15", message_text="calendar")
     await client.send_callback("task:add:2026-07-15", message_text="day view")
     await client.send_message("Test")

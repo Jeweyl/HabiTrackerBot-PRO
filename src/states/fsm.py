@@ -114,6 +114,22 @@ class AIAssistantFSM(StatesGroup):
             On yes: resolve schedule, conflict check, apply + tasks.
     """
 
+    start = State()
+    clarifying = State()
+    confirm_plan = State()
+
+
+class AITaskAssistantFSM(StatesGroup):
+    """FSM group for the AI multi-turn one-off task assistant (B4).
+
+    Flow: title → (AI ask_questions loop, max 3 rounds) → propose_task
+    preview → user confirm → create one Task (no Habit).
+
+    Attributes:
+        start: Task description / title input (date already in FSM data).
+        clarifying: User answers the current AI clarifying question.
+        confirm_plan: Soft preview of ProposeTaskPlan; no DB write until yes.
+    """
 
     start = State()
     clarifying = State()

@@ -13,6 +13,7 @@ from src.config import settings
 from src.services.ai_schema import (
     AskQuestions,
     ProposePlan,
+    ProposeTaskPlan,
     parse_ai_response,
 )
 
@@ -405,11 +406,110 @@ def build_multiturn_prompt(
     return prompt
 
 
+def build_multiturn_task_prompt(
+    *,
+    task_title: str,
+    answers: dict | None = None,
+    language: str = "ru",
+    timezone: str = "UTC",
+    habits_tasks_summary: str = "",
+    default_date: str = "",
+    clarifying_round: int = 0,
+    force_propose: bool = False,
+) -> str:
+    """Build a multi-turn prompt for a one-off task (B4), not a habit.
+
+    The model must return **only** one of two JSON objects:
+
+    * ``{"type":"ask_questions","questions":[...],"context":...}``
+    * ``{"type":"propose_task","title":...,"date":"YYYY-MM-DD",...}``
+
+    Never propose a habit / frequency / recurring schedule.
+
+    Args:
+        task_title: Task description from the user.
+        answers: Collected Q/A so far.
+        language: User language code.
+        timezone: User timezone string.
+        habits_tasks_summary: Pre-built schedule context.
+        default_date: ISO date the task should land on (YYYY-MM-DD).
+        clarifying_round: Number of ask rounds already used.
+        force_propose: If True, forbid further ask_questions.
+
+    Returns:
+        Prompt string for :func:`send_to_ai_parsed`.
+    """
+    answers = answers or {}
+    answers_parts: list[str] = []
+    for key, value in answers.items():
+        if value and value != "Пропущено":
+            answers_parts.append(f"{key}: {value}")
+
+    answers_text = (
+        "; ".join(answers_parts) if answers_parts else "No additional details provided"
+    )
+
+    context_block = habits_tasks_summary.strip() or (
+        f"language={language or 'ru'}\ntimezone={timezone or 'UTC'}\n"
+        "habits: (none)\ntasks: (none)"
+    )
+
+    rounds_left = max(0, MAX_CLARIFYING_ROUNDS - int(clarifying_round or 0))
+    date_hint = default_date or "today (user local)"
+
+    force_line = (
+        "CRITICAL: You MUST return propose_task now. Do NOT return ask_questions. "
+        "Use reasonable defaults for any missing details.\n"
+        if force_propose
+        else (
+            f"You may ask clarifying questions in at most {rounds_left} more "
+            f"round(s) (max {MAX_CLARIFYING_ROUNDS} total). "
+            "Prefer propose_task when you have enough information.\n"
+        )
+    )
+
+    prompt = (
+        "You are a scheduling assistant helping the user create ONE one-off task "
+        "(a single calendar item). Do NOT create a habit or recurring plan.\n"
+        f"User language: {language or 'ru'}. User timezone: {timezone or 'UTC'}.\n"
+        f"User schedule context:\n{context_block}\n"
+        f"Desired task: '{task_title}'.\n"
+        f"Preferred / default date: {date_hint}.\n"
+        f"Answers so far: {answers_text}.\n"
+        f"Clarifying rounds already used: {int(clarifying_round or 0)}/"
+        f"{MAX_CLARIFYING_ROUNDS}.\n"
+        f"{force_line}"
+        "Respond with ONLY a single valid JSON object (no markdown fences, "
+        "no commentary) matching exactly one of these shapes:\n"
+        "1) Ask clarifying questions (1–3 questions per round):\n"
+        '{"type":"ask_questions","questions":["..."]|'
+        '[{"text":"...","kind":"text"|"choice"|"time","options":["a","b"]|null}],'
+        '"context":"optional"}\n'
+        "2) Propose a concrete one-off task:\n"
+        '{"type":"propose_task","title":"...","date":"YYYY-MM-DD"|null,'
+        '"start_time":"HH:MM","end_time":"HH:MM"|null,'
+        '"duration_minutes":integer|null,"comment":"..."}\n'
+        "Rules:\n"
+        "- This is NOT a habit: no frequency, no recurring schedule.\n"
+        "- Times must be zero-padded HH:MM with minutes in {00,15,30,45}.\n"
+        "- If start_time, end_time and duration_minutes are all set, "
+        "duration_minutes MUST equal (end_time - start_time) in minutes "
+        "on the same calendar day (no overnight ranges).\n"
+        "- duration_minutes, when set, must be a positive multiple of 15.\n"
+        "- date must be YYYY-MM-DD when provided; prefer the default date.\n"
+        "- Avoid scheduling over existing habits/tasks when possible.\n"
+        "- Do not invent fields outside this schema.\n"
+        "- Do not claim the task is already saved; only propose."
+    )
+
+    return prompt
+
+
 async def send_to_ai_parsed(
     prompt: str,
     model: str | None = None,
-) -> AskQuestions | ProposePlan | None:
-    """Call OpenRouter and validate the payload against the B1 JSON schema.
+) -> AskQuestions | ProposePlan | ProposeTaskPlan | None:
+    """Call OpenRouter and validate the payload against the B1/B4 JSON schema.
 
     Combines :func:`send_to_ai` with :func:`parse_ai_response`. Returns
     ``None`` on network failure, empty content, or schema validation errors.
@@ -420,7 +520,8 @@ async def send_to_ai_parsed(
         model: Optional model identifier override.
 
     Returns:
-        Validated ``AskQuestions`` or ``ProposePlan``, or ``None``.
+        Validated ``AskQuestions``, ``ProposePlan``, or ``ProposeTaskPlan``,
+        or ``None``.
     """
     raw: dict[str, Any] | None = await send_to_ai(prompt, model=model)
     return parse_ai_response(raw)

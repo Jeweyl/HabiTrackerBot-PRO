@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import time
+from datetime import date, time
 from typing import Annotated, Any, Literal, Union
 
 from pydantic import (
@@ -317,14 +317,124 @@ class ProposePlan(BaseModel):
         return self
 
 
+class ProposeTaskPlan(BaseModel):
+    """AI proposes a one-off task (schedule item), not a habit.
+
+    Attributes:
+        type: Discriminator; always ``propose_task``.
+        title: Task title (1–200 characters).
+        date: Optional ISO date ``YYYY-MM-DD``; handlers default to today.
+        start_time: Start time ``HH:MM`` on the 15-minute grid.
+        end_time: Optional end time ``HH:MM`` on the 15-minute grid.
+        duration_minutes: Optional duration; if start+end+duration are all set,
+            duration must equal ``end - start`` (reject + log on mismatch).
+        comment: Free-text coach comment.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["propose_task"] = "propose_task"
+    title: str = Field(min_length=1, max_length=200)
+    date: str | None = None
+    start_time: str
+    end_time: str | None = None
+    duration_minutes: int | None = None
+    comment: str = ""
+
+    @field_validator("title")
+    @classmethod
+    def _strip_title(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("title must not be empty")
+        return cleaned
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("date must be a string in YYYY-MM-DD format")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(f"invalid date format (expected YYYY-MM-DD): {value!r}") from exc
+        return cleaned
+
+    @field_validator("start_time")
+    @classmethod
+    def _validate_start_time(cls, value: str) -> str:
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("end_time")
+    @classmethod
+    def _validate_end_time(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def _validate_duration(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("duration_minutes must be an integer")
+        if value <= 0:
+            raise ValueError("duration_minutes must be positive")
+        if value % 15 != 0:
+            raise ValueError("duration_minutes must be a multiple of 15")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_duration_integrity(self) -> ProposeTaskPlan:
+        """Reject when start/end/duration disagree; never auto-fix."""
+        if self.end_time is not None:
+            start = _parse_hh_mm(self.start_time)
+            end = _parse_hh_mm(self.end_time)
+            try:
+                span = _minutes_between(start, end)
+            except ValueError as exc:
+                logger.warning(
+                    "AI ProposeTaskPlan rejected: invalid time range %s–%s (%s)",
+                    self.start_time,
+                    self.end_time,
+                    exc,
+                )
+                raise
+
+            if self.duration_minutes is not None and self.duration_minutes != span:
+                logger.warning(
+                    "AI ProposeTaskPlan rejected: duration_minutes=%s but "
+                    "end-start=%s (%s–%s); policy=reject (no auto-fix)",
+                    self.duration_minutes,
+                    span,
+                    self.start_time,
+                    self.end_time,
+                )
+                raise ValueError(
+                    f"duration_minutes ({self.duration_minutes}) must equal "
+                    f"end-start ({span}) minutes"
+                )
+        return self
+
+
 AIResponse = Annotated[
-    Union[AskQuestions, ProposePlan],
+    Union[AskQuestions, ProposePlan, ProposeTaskPlan],
     Field(discriminator="type"),
 ]
 """Discriminated union of supported AI response shapes."""
 
 
-def parse_ai_response(raw: str | dict[str, Any] | None) -> AskQuestions | ProposePlan | None:
+def parse_ai_response(
+    raw: str | dict[str, Any] | None,
+) -> AskQuestions | ProposePlan | ProposeTaskPlan | None:
     """Parse and validate a raw AI payload into a typed response.
 
     Never raises for untrusted input. Returns ``None`` on any failure
@@ -387,6 +497,8 @@ def parse_ai_response(raw: str | dict[str, Any] | None) -> AskQuestions | Propos
             return AskQuestions.model_validate(data)
         if response_type == "propose_plan":
             return ProposePlan.model_validate(data)
+        if response_type == "propose_task":
+            return ProposeTaskPlan.model_validate(data)
         logger.warning(
             "parse_ai_response: missing or unknown type %r",
             response_type,

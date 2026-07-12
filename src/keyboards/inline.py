@@ -378,21 +378,107 @@ def get_month_calendar_keyboard(
 def get_day_keyboard(selected_date: date) -> InlineKeyboardMarkup:
     """Build an inline keyboard with actions for a selected day.
 
-    Provides buttons to add a task and navigate back to the month calendar.
+    Provides buttons to add a task (manual / AI) and navigate back.
 
     Args:
         selected_date: The date selected by the user.
 
     Returns:
-        InlineKeyboardMarkup with add / back / main menu buttons.
+        InlineKeyboardMarkup with add / AI / back / main menu buttons.
     """
     iso = selected_date.isoformat()
     builder = InlineKeyboardBuilder()
     builder.button(text="📅 Добавить задачу", callback_data=f"task:add:{iso}")
+    builder.button(text="🤖 С AI", callback_data=f"task:ai:{iso}")
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
+    builder.adjust(1, 1, 1, 1)
+    return builder.as_markup()
+
+
+def get_new_task_choice_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    """Build keyboard for choosing manual vs AI-assisted task creation.
+
+    Args:
+        lang: User language code.
+
+    Returns:
+        InlineKeyboardMarkup with manual / AI / back buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=t("task_ai.btn_manual", lang),
+        callback_data="new_task:manual",
+    )
+    builder.button(
+        text=t("task_ai.btn_ai", lang),
+        callback_data="new_task:ai",
+    )
+    builder.button(text=t("common.back", lang), callback_data="nav:back")
     builder.adjust(1, 1, 1)
     return builder.as_markup()
+
+
+def get_ai_task_fallback_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    """Fallback keyboard when task AI is unavailable.
+
+    Args:
+        lang: User language code.
+
+    Returns:
+        InlineKeyboardMarkup with manual creation and back.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=t("task_ai.btn_manual_create", lang),
+        callback_data="new_task:manual",
+    )
+    builder.button(text=t("common.back", lang), callback_data="nav:back")
+    builder.adjust(1, 1)
+    return builder.as_markup()
+
+
+def get_ai_task_choice_keyboard(
+    options: list[str],
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    """Choice keyboard for task AI clarifying questions (``assist_task:``).
+
+    Args:
+        options: Choice labels.
+        lang: User language code.
+
+    Returns:
+        InlineKeyboardMarkup with option buttons + skip/nav.
+    """
+    builder = InlineKeyboardBuilder()
+    for i, label in enumerate(options):
+        text = (label or "").strip() or f"Option {i + 1}"
+        builder.button(text=text[:64], callback_data=f"assist_task:choice:{i}")
+    builder.button(text=t("task_ai.skip", lang), callback_data="assist_task:skip")
+    builder.button(text=t("common.back", lang), callback_data="nav:back")
+    builder.button(text=t("common.cancel", lang), callback_data="nav:cancel")
+    rows = [1] * len(options) + [1, 2]
+    builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def get_ai_task_plan_confirm_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    """Yes/No keyboard for AI task plan preview (``assist_task:``).
+
+    Args:
+        lang: User language code.
+
+    Returns:
+        InlineKeyboardMarkup with confirm / decline / cancel.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("task_ai.yes", lang), callback_data="assist_task:yes")
+    builder.button(text=t("task_ai.no", lang), callback_data="assist_task:no")
+    builder.button(text=t("common.cancel", lang), callback_data="nav:cancel")
+    builder.adjust(2, 1)
+    return builder.as_markup()
+
 
 
 # ---------------------------------------------------------------------------

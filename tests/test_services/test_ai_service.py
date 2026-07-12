@@ -12,12 +12,14 @@ from src.services.ai_schema import ProposePlan
 from src.services.ai_service import (
     MAX_CLARIFYING_ROUNDS,
     build_multiturn_prompt,
+    build_multiturn_task_prompt,
     build_prompt,
     build_prompt_v2,
     build_user_context_summary,
     send_to_ai,
     send_to_ai_parsed,
 )
+
 
 
 
@@ -273,6 +275,27 @@ def test_build_user_context_summary_empty_safe() -> None:
     assert "timezone=" in summary
     assert "habits: (none)" in summary
     assert "tasks: (none)" in summary
+
+
+def test_build_multiturn_task_prompt_not_habit() -> None:
+    """Task prompt must request propose_task and forbid habit/frequency."""
+    prompt = build_multiturn_task_prompt(
+        task_title="Dentist",
+        answers={},
+        language="ru",
+        timezone="UTC",
+        default_date="2026-07-12",
+        clarifying_round=0,
+        force_propose=False,
+    )
+    assert "Dentist" in prompt
+    assert "propose_task" in prompt
+    assert "2026-07-12" in prompt
+    assert "one-off" in prompt.lower() or "NOT a habit" in prompt or "not a habit" in prompt.lower()
+    assert "propose_plan" not in prompt or "propose_task" in prompt
+    # Should not instruct creating a habit frequency plan as primary
+    assert "frequency" not in prompt.split("propose_task")[0] or "NOT a habit" in prompt
+
 
 
 

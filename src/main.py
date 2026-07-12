@@ -8,12 +8,14 @@ from src.bot import bot, dp, redis
 from src.config import settings
 from src.handlers.admin import router as admin_router
 from src.handlers.ai_assistant import router as ai_assistant_router
+from src.handlers.ai_task_assistant import router as ai_task_assistant_router
 from src.handlers.checkin import router as checkin_router
 from src.handlers.common import router as common_router
 from src.handlers.habits import router as habits_router
 from src.handlers.settings import router as settings_router
 from src.handlers.statistics import router as statistics_router
 from src.handlers.tasks import router as tasks_router
+
 from src.services.checkin_service import process_checkins
 from src.services.reminder_service import process_reminders
 
@@ -71,7 +73,9 @@ async def main() -> None:
     dp.include_router(settings_router)  # Must be before statistics for priority
     dp.include_router(statistics_router)  # Must be before ai_assistant for priority
     dp.include_router(ai_assistant_router)  # Must be before common_router for priority
+    dp.include_router(ai_task_assistant_router)  # B4 task AI; after tasks for SkipHandler force_add
     dp.include_router(common_router)
+
 
 
     logger.info("Starting bot polling...")
