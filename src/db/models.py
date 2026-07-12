@@ -128,6 +128,7 @@ class Task(Base):
         end_time: End time of the task (optional — ``None`` means open-ended).
         is_completed: Whether the task has been marked as done.
         is_placeholder: Whether this is a placeholder task (ЗАНЯТ).
+        last_checkin_at: UTC timestamp of the last check-in prompt (anti-spam).
         created_at: Timestamp of record creation.
     """
 
@@ -146,11 +147,15 @@ class Task(Base):
     end_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     is_completed: Mapped[bool] = mapped_column(default=False, server_default=false())
     is_placeholder: Mapped[bool] = mapped_column(default=False, server_default=false())
+    last_checkin_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
     )
+
 
 
 class Habit(Base):

@@ -45,9 +45,15 @@
 - 🌐 **Язык** — выбор из 5 языков
 - 🕐 **Часовой пояс** — UTC от -12 до +14
 - ⏰ **Время уведомлений** — 24 слота или отключение
-- ⏱ **Интервал проверки** — от 5 до 60 минут
+- ⏱ **Интервал проверки** — от 5 до 60 минут (check-in по незавершённым задачам)
+
+### ✅ Check-in уведомления
+- 🔔 **Промпт «Выполнили …?»** для незавершённых задач после `start_time`
+- ⏱ **Anti-spam** по `check_interval` (поле `last_checkin_at` на задаче)
+- ✅/❌ **Ответ в один тап** — complete / skip без повторной спам-рассылки
 
 ---
+
 
 ## Стек технологий
 
@@ -302,6 +308,7 @@ docker compose exec bot pytest tests/test_db.py
 │   │   ├── __init__.py
 │   │   ├── admin.py              # Админ-команды (/admin)
 │   │   ├── ai_assistant.py       # AI-мастер создания привычек (OpenRouter)
+│   │   ├── checkin.py            # Check-in yes/no callbacks
 │   │   ├── common.py             # Общие обработчики (навигация, /start)
 │   │   ├── habits.py             # Создание, список, редактирование привычек
 │   │   ├── settings.py           # Настройки пользователя
@@ -315,14 +322,16 @@ docker compose exec bot pytest tests/test_db.py
 │   │   ├── __init__.py
 │   │   ├── ai_service.py          # Интеграция с OpenRouter API
 │   │   ├── habit_generator.py     # Ленивая генерация задач из привычек
-│   │   └── reminder_service.py    # Фоновые уведомления по reminder_time
+│   │   ├── reminder_service.py    # Фоновые уведомления по reminder_time
+│   │   └── checkin_service.py     # Check-in по check_interval + last_checkin_at
 
 │   ├── states/
 │   │   ├── __init__.py
 │   │   └── fsm.py                # Состояния FSM (Finite State Machine)
 │   └── utils/
 │       ├── __init__.py
-│       └── conflict.py            # Проверка конфликтов временных слотов
+│       ├── conflict.py            # Проверка конфликтов временных слотов
+│       └── timezone.py            # Shared timezone helpers (reminder/check-in)
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py                # Фикстуры (in-memory SQLite, mock-сессия)
@@ -330,6 +339,7 @@ docker compose exec bot pytest tests/test_db.py
 │   ├── test_handlers/
 │   │   ├── __init__.py
 │   │   ├── test_ai_assistant.py   # Тесты AI-мастера
+│   │   ├── test_checkin.py        # Тесты check-in handlers
 │   │   ├── test_common_buttons.py # Тесты навигации
 │   │   ├── test_habit_generation.py # Тесты генерации задач
 │   │   ├── test_habits.py         # Тесты привычек
@@ -340,7 +350,8 @@ docker compose exec bot pytest tests/test_db.py
 │   │   └── test_tasks.py          # Тесты задач
 │   └── test_services/
 │       ├── __init__.py
-│       └── test_ai_service.py     # Тесты AI-сервиса
+│       ├── test_ai_service.py     # Тесты AI-сервиса
+│       └── test_checkin_service.py # Тесты check-in service
 ├── .env.example                   # Пример переменных окружения (dev)
 ├── .env.prod.example              # Пример переменных окружения (prod)
 ├── .gitignore

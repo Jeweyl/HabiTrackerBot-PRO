@@ -930,3 +930,26 @@ def get_check_interval_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
     builder.adjust(2, 2, 2, 1, 1, 1)
     return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Check-in keyboard — yes / no for incomplete task prompts
+# ---------------------------------------------------------------------------
+
+
+def get_checkin_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    """Build an inline keyboard for a check-in prompt.
+
+    Args:
+        task_id: ID of the task being checked.
+
+    Returns:
+        InlineKeyboardMarkup with ✅ / ❌ buttons.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅", callback_data=f"checkin:yes:{task_id}")
+    builder.button(text="❌", callback_data=f"checkin:no:{task_id}")
+    builder.adjust(2)
+    return builder.as_markup()
+
+

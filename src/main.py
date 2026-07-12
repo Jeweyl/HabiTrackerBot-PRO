@@ -8,12 +8,15 @@ from src.bot import bot, dp, redis
 from src.config import settings
 from src.handlers.admin import router as admin_router
 from src.handlers.ai_assistant import router as ai_assistant_router
+from src.handlers.checkin import router as checkin_router
 from src.handlers.common import router as common_router
 from src.handlers.habits import router as habits_router
 from src.handlers.settings import router as settings_router
 from src.handlers.statistics import router as statistics_router
 from src.handlers.tasks import router as tasks_router
+from src.services.checkin_service import process_checkins
 from src.services.reminder_service import process_reminders
+
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +31,9 @@ def _setup_logging() -> None:
 
 
 async def _reminder_loop(stop_event: asyncio.Event) -> None:
-    """Periodically send due reminders until *stop_event* is set."""
+    """Periodically send due reminders and check-ins until *stop_event* is set."""
     poll_seconds = settings.REMINDER_POLL_SECONDS
-    logger.info("Reminder loop started (interval=%ss)", poll_seconds)
+    logger.info("Reminder/check-in loop started (interval=%ss)", poll_seconds)
     while not stop_event.is_set():
         try:
             await process_reminders(bot)
@@ -38,9 +41,15 @@ async def _reminder_loop(stop_event: asyncio.Event) -> None:
             logger.exception("Reminder loop iteration failed")
 
         try:
+            await process_checkins(bot)
+        except Exception:
+            logger.exception("Check-in loop iteration failed")
+
+        try:
             await asyncio.wait_for(stop_event.wait(), timeout=poll_seconds)
         except asyncio.TimeoutError:
             continue
+
 
 
 
@@ -56,12 +65,14 @@ async def main() -> None:
     _setup_logging()
 
     dp.include_router(admin_router)
+    dp.include_router(checkin_router)  # Check-in yes/no callbacks
     dp.include_router(tasks_router)  # Must be before habits_router for priority
     dp.include_router(habits_router)  # Must be before settings for priority
     dp.include_router(settings_router)  # Must be before statistics for priority
     dp.include_router(statistics_router)  # Must be before ai_assistant for priority
     dp.include_router(ai_assistant_router)  # Must be before common_router for priority
     dp.include_router(common_router)
+
 
     logger.info("Starting bot polling...")
     stop_event = asyncio.Event()
