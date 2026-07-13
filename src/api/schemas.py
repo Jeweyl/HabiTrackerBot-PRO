@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -27,8 +27,8 @@ class OverviewResponse(BaseModel):
     """Aggregate stats for a rolling window."""
 
     days: int
-    from_: date = Field(alias="from")
-    to: date
+    from_: datetime.date = Field(alias="from")
+    to: datetime.date
     total_tasks: int
     completed_tasks: int
     missed_tasks: int
@@ -44,7 +44,7 @@ class OverviewResponse(BaseModel):
 class DailyPointResponse(BaseModel):
     """One day in the daily series."""
 
-    date: date
+    date: datetime.date
     total: int
     completed: int
     missed: int
@@ -53,8 +53,8 @@ class DailyPointResponse(BaseModel):
 class DailySeriesResponse(BaseModel):
     """Gap-filled daily completion series."""
 
-    from_: date = Field(alias="from")
-    to: date
+    from_: datetime.date = Field(alias="from")
+    to: datetime.date
     series: list[DailyPointResponse]
 
     model_config = {"populate_by_name": True}
@@ -65,7 +65,7 @@ class ScheduleItemResponse(BaseModel):
 
     id: int
     title: str
-    date: date
+    date: datetime.date
     start_time: str
     end_time: str | None
     is_completed: bool
@@ -76,8 +76,8 @@ class ScheduleItemResponse(BaseModel):
 class ScheduleResponse(BaseModel):
     """Tasks in a date range."""
 
-    from_: date = Field(alias="from")
-    to: date
+    from_: datetime.date = Field(alias="from")
+    to: datetime.date
     items: list[ScheduleItemResponse]
 
     model_config = {"populate_by_name": True}
@@ -98,8 +98,8 @@ class HabitBreakdownResponse(BaseModel):
     """Per-habit stats for a rolling window."""
 
     days: int
-    from_: date = Field(alias="from")
-    to: date
+    from_: datetime.date = Field(alias="from")
+    to: datetime.date
     items: list[HabitBreakdownItemResponse]
 
     model_config = {"populate_by_name": True}
@@ -140,5 +140,59 @@ class MeUpdateRequest(BaseModel):
     check_interval: Optional[int] = None
 
     model_config = {"extra": "forbid"}
+
+
+class TaskResponse(BaseModel):
+    """Single task for dashboard CRUD."""
+
+    id: int
+    title: str
+    date: datetime.date
+    start_time: str
+    end_time: str | None
+    is_completed: bool
+    is_placeholder: bool
+    habit_id: int | None
+
+
+class TaskListResponse(BaseModel):
+    """Tasks in a date range."""
+
+    from_: datetime.date = Field(alias="from")
+    to: datetime.date
+    items: list[TaskResponse]
+
+    model_config = {"populate_by_name": True}
+
+
+class TaskCreateRequest(BaseModel):
+    """Create a one-off (or schedule) task."""
+
+    title: str = Field(..., min_length=1, max_length=200)
+    date: datetime.date
+    start_time: str = Field(..., description="HH:MM on 15-minute grid")
+    end_time: Optional[str] = Field(
+        default=None, description="HH:MM or null for open-ended"
+    )
+
+    model_config = {"extra": "forbid"}
+
+
+class TaskUpdateRequest(BaseModel):
+    """Partial task update. Omitted fields unchanged.
+
+    To clear end_time (open-ended), send ``\"end_time\": null`` explicitly.
+    """
+
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    # Use datetime.date — field name ``date`` would shadow ``from datetime import date``.
+    date: Optional[datetime.date] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    is_completed: Optional[bool] = None
+
+    model_config = {"extra": "forbid"}
+
+
 
 
