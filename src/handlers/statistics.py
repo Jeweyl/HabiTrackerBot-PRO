@@ -6,7 +6,12 @@ import logging
 from datetime import date, timedelta
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    WebAppInfo,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 
@@ -108,10 +113,11 @@ def _stats_keyboard(
         )
 
     if dashboard_url:
+        # Open inside Telegram as a Mini App (not an external browser tab).
         builder.row(
             InlineKeyboardButton(
                 text=t("stats.open_dashboard", lang),
-                url=dashboard_url,
+                web_app=WebAppInfo(url=dashboard_url),
             )
         )
     else:
