@@ -129,10 +129,11 @@ Step-by-step Variant B (public API URL + CORS, separate WEB repo):
 - **Handlers → services → db** layering; FSM for multi-step wizards
 - **AI pipeline:** schema (Pydantic) → normalize (15-min grid) → apply + conflicts
 - **Time picker:** hour → minutes (00/15/30/45); shared grid for UI and AI
-- **Stats:** OTT in Redis → JWT → read-only FastAPI → Vue
+- **Stats + account:** OTT in Redis → JWT → FastAPI (`/stats/*`, `GET|PATCH /me`) → Vue
 
 Key paths: `src/handlers/`, `src/services/`, `src/api/`, `tests/`.  
 Vue dashboard: separate repo **HabiTrackerBOT-WEB**.
+
 
 
 ---

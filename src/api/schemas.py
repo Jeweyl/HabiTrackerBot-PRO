@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Optional
 
 from pydantic import BaseModel, Field
+
 
 
 class TokenExchangeRequest(BaseModel):
@@ -107,3 +109,36 @@ class HealthResponse(BaseModel):
     """Liveness probe."""
 
     status: str = "ok"
+
+
+class MeResponse(BaseModel):
+    """Authenticated user profile + account settings."""
+
+    id: int
+    telegram_id: int
+    username: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    language: str
+    timezone: str
+    reminder_time: str | None = None
+    check_interval: int
+
+
+class MeUpdateRequest(BaseModel):
+    """Partial account settings update (omit = leave unchanged).
+
+    ``reminder_time`` may be set to ``null`` explicitly to disable reminders.
+    """
+
+    language: Optional[str] = None
+    timezone: Optional[str] = None
+    reminder_time: Optional[str] = Field(
+        default=None,
+        description="HH:MM or null to disable; omit field to leave unchanged",
+    )
+    check_interval: Optional[int] = None
+
+    model_config = {"extra": "forbid"}
+
+

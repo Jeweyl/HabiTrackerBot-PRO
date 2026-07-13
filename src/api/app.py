@@ -1,4 +1,5 @@
-"""FastAPI application factory for the read-only stats API."""
+"""FastAPI application factory for the stats + account API."""
+
 
 from __future__ import annotations
 
@@ -11,7 +12,9 @@ from redis.asyncio import Redis
 
 from src.api.routes import auth as auth_routes
 from src.api.routes import health as health_routes
+from src.api.routes import me as me_routes
 from src.api.routes import stats as stats_routes
+
 from src.api.token_store import MemoryTokenStore, RedisTokenStore, TokenStore
 from src.config import settings
 
@@ -61,10 +64,11 @@ def create_app(
         token_store: Optional pre-built store (tests inject MemoryTokenStore).
     """
     app = FastAPI(
-        title="HabiTracker Stats API",
-        version="1.0.0",
+        title="HabiTracker API",
+        version="1.1.0",
         lifespan=lifespan,
     )
+
 
     if token_store is not None:
         app.state.token_store = token_store
@@ -75,14 +79,16 @@ def create_app(
         CORSMiddleware,
         allow_origins=origins,
         allow_credentials=False if origins == ["*"] else True,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         allow_headers=["*"],
     )
 
     app.include_router(health_routes.router)
     app.include_router(auth_routes.router)
+    app.include_router(me_routes.router)
     app.include_router(stats_routes.router)
     return app
+
 
 
 # ASGI entry for uvicorn: ``uvicorn src.api.app:app``
