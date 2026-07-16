@@ -81,6 +81,8 @@ def build_settings_menu_text(
     timezone: str = "UTC",
     reminder_time: time | None = None,
     check_interval: int | None = 15,
+    checkin_no_spam: bool = True,
+    ask_auto_rollover: bool = False,
     notice: str | None = None,
 ) -> str:
     """Build settings menu text showing current values.
@@ -90,6 +92,8 @@ def build_settings_menu_text(
         timezone: Stored user timezone string.
         reminder_time: Preferred daily reminder time or None.
         check_interval: Check-in interval in minutes.
+        checkin_no_spam: Anti-spam check-in setting.
+        ask_auto_rollover: Whether to ask about rollover after create.
         notice: Optional one-line confirmation prepended above the menu.
 
     Returns:
@@ -104,10 +108,15 @@ def build_settings_menu_text(
         timezone=_format_timezone_display(timezone),
         reminder=_format_reminder_display(reminder_time, lang),
         interval=t("common.minutes", lang, n=interval),
+        no_spam=t("common.on", lang) if checkin_no_spam else t("common.off", lang),
+        ask_rollover=(
+            t("common.on", lang) if ask_auto_rollover else t("common.off", lang)
+        ),
     )
     if notice:
         return f"{notice}\n\n{body}"
     return body
+
 
 
 async def _load_user_lang(telegram_id: int) -> tuple[User | None, str]:
@@ -144,14 +153,27 @@ async def _render_settings_for_telegram_id(
             )
 
         lang = normalize_lang(lang_override or user.language)
+        no_spam = bool(getattr(user, "checkin_no_spam", True))
+        ask_rollover = bool(getattr(user, "ask_auto_rollover", False))
         text = build_settings_menu_text(
             language=lang,
             timezone=user.timezone,
             reminder_time=user.reminder_time,
             check_interval=user.check_interval,
+            checkin_no_spam=no_spam,
+            ask_auto_rollover=ask_rollover,
             notice=notice,
         )
-        return text, get_settings_menu_keyboard(lang), lang
+        return (
+            text,
+            get_settings_menu_keyboard(
+                lang,
+                checkin_no_spam=no_spam,
+                ask_auto_rollover=ask_rollover,
+            ),
+            lang,
+        )
+
 
 
 # =============================================================================
@@ -389,8 +411,63 @@ async def set_reminder_time(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.edit_text(text, reply_markup=keyboard)
 
 
+@router.callback_query(F.data == "settings:toggle_no_spam")
+async def toggle_checkin_no_spam(callback: CallbackQuery, state: FSMContext) -> None:
+    """Toggle the check-in anti-spam setting."""
+    await callback.answer()
+
+    async with get_db() as session:
+        user = await _get_user(session, callback.from_user.id)
+        if user is None:
+            await callback.message.edit_text(t("common.user_not_found", "ru"))
+            return
+        user.checkin_no_spam = not bool(getattr(user, "checkin_no_spam", True))
+        lang = normalize_lang(user.language)
+        enabled = bool(user.checkin_no_spam)
+        await session.commit()
+
+    await state.set_state(SettingsFSM.menu)
+    notice = t(
+        "settings.no_spam_on" if enabled else "settings.no_spam_off",
+        lang,
+    )
+    text, keyboard, _ = await _render_settings_for_telegram_id(
+        callback.from_user.id,
+        notice=notice,
+    )
+    await callback.message.edit_text(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data == "settings:toggle_ask_rollover")
+async def toggle_ask_auto_rollover(callback: CallbackQuery, state: FSMContext) -> None:
+    """Toggle whether to ask about auto-rollover after creating a task."""
+    await callback.answer()
+
+    async with get_db() as session:
+        user = await _get_user(session, callback.from_user.id)
+        if user is None:
+            await callback.message.edit_text(t("common.user_not_found", "ru"))
+            return
+        user.ask_auto_rollover = not bool(getattr(user, "ask_auto_rollover", False))
+        lang = normalize_lang(user.language)
+        enabled = bool(user.ask_auto_rollover)
+        await session.commit()
+
+    await state.set_state(SettingsFSM.menu)
+    notice = t(
+        "settings.ask_rollover_on" if enabled else "settings.ask_rollover_off",
+        lang,
+    )
+    text, keyboard, _ = await _render_settings_for_telegram_id(
+        callback.from_user.id,
+        notice=notice,
+    )
+    await callback.message.edit_text(text, reply_markup=keyboard)
+
+
 @router.callback_query(F.data.startswith("settings:set_interval:"))
 async def set_check_interval(callback: CallbackQuery, state: FSMContext) -> None:
+
     """Save the selected check interval and return to the settings menu.
 
     Args:

@@ -59,16 +59,20 @@ def _parse_hh_mm(raw: str, *, field: str = "time") -> time:
 
 
 def _task_to_response(task: Task) -> TaskResponse:
+    start = (
+        task.start_time.strftime("%H:%M") if task.start_time is not None else None
+    )
     end = task.end_time.strftime("%H:%M") if task.end_time is not None else None
     return TaskResponse(
         id=task.id,
         title=task.title,
         date=task.date,
-        start_time=task.start_time.strftime("%H:%M"),
+        start_time=start,
         end_time=end,
         is_completed=bool(task.is_completed),
         is_placeholder=bool(task.is_placeholder),
         habit_id=task.habit_id,
+        auto_rollover=bool(getattr(task, "auto_rollover", False)),
     )
 
 
@@ -117,6 +121,7 @@ async def list_tasks(
                     is_completed=i.is_completed,
                     is_placeholder=i.is_placeholder,
                     habit_id=i.habit_id,
+                    auto_rollover=bool(getattr(i, "auto_rollover", False)),
                 )
                 for i in items
             ],
@@ -145,7 +150,10 @@ async def create_task(
         raise _http_422("title must not be empty")
 
     try:
-        start = _parse_hh_mm(body.start_time, field="start_time")
+        if body.start_time is None or str(body.start_time).strip() == "":
+            start = None
+        else:
+            start = _parse_hh_mm(body.start_time, field="start_time")
         end: time | None
         if body.end_time is None or str(body.end_time).strip() == "":
             end = None
@@ -154,14 +162,17 @@ async def create_task(
     except ValueError as exc:
         raise _http_422(str(exc)) from exc
 
-    if end is not None and end <= start:
+    if start is None:
+        end = None
+    elif end is not None and end <= start:
         raise _http_422("end_time must be after start_time")
 
-    free = await is_time_slot_free(
-        session, user.id, body.date, start, end
-    )
-    if not free:
-        raise _http_409("Time slot conflicts with an existing task")
+    if start is not None:
+        free = await is_time_slot_free(
+            session, user.id, body.date, start, end
+        )
+        if not free:
+            raise _http_409("Time slot conflicts with an existing task")
 
     task = Task(
         user_id=user.id,
@@ -172,6 +183,7 @@ async def create_task(
         end_time=end,
         is_completed=False,
         is_placeholder=False,
+        auto_rollover=bool(body.auto_rollover),
     )
     session.add(task)
     await session.flush()
@@ -220,6 +232,7 @@ async def patch_task(
         raise _http_422("Body must be a JSON object")
 
     end_provided = "end_time" in raw
+    start_provided = "start_time" in raw
 
     try:
         body = TaskUpdateRequest.model_validate(raw)
@@ -237,19 +250,27 @@ async def patch_task(
     if body.is_completed is not None:
         task.is_completed = bool(body.is_completed)
 
+    if body.auto_rollover is not None:
+        task.auto_rollover = bool(body.auto_rollover)
+
     schedule_touched = (
         body.date is not None
-        or body.start_time is not None
+        or start_provided
         or end_provided
     )
 
     new_date = body.date if body.date is not None else task.date
 
-    if body.start_time is not None:
-        try:
-            new_start = _parse_hh_mm(body.start_time, field="start_time")
-        except ValueError as exc:
-            raise _http_422(str(exc)) from exc
+    if start_provided:
+        if body.start_time is None or (
+            isinstance(body.start_time, str) and not body.start_time.strip()
+        ):
+            new_start = None
+        else:
+            try:
+                new_start = _parse_hh_mm(str(body.start_time), field="start_time")
+            except ValueError as exc:
+                raise _http_422(str(exc)) from exc
     else:
         new_start = task.start_time
 
@@ -266,20 +287,23 @@ async def patch_task(
     else:
         new_end = task.end_time
 
-    if new_end is not None and new_end <= new_start:
+    if new_start is None:
+        new_end = None
+    elif new_end is not None and new_end <= new_start:
         raise _http_422("end_time must be after start_time")
 
     if schedule_touched:
-        free = await is_time_slot_free(
-            session,
-            user.id,
-            new_date,
-            new_start,
-            new_end,
-            exclude_task_id=task.id,
-        )
-        if not free:
-            raise _http_409("Time slot conflicts with an existing task")
+        if new_start is not None:
+            free = await is_time_slot_free(
+                session,
+                user.id,
+                new_date,
+                new_start,
+                new_end,
+                exclude_task_id=task.id,
+            )
+            if not free:
+                raise _http_409("Time slot conflicts with an existing task")
         task.date = new_date
         task.start_time = new_start
         task.end_time = new_end

@@ -35,21 +35,27 @@ def is_checkin_due(
     *,
     local_dt: datetime,
     interval_minutes: int,
+    no_spam: bool = False,
 ) -> bool:
     """Return whether a task should receive a check-in notification.
 
     Rules:
     - ``interval_minutes <= 0`` disables check-ins
     - completed / placeholder tasks are skipped
+    - untimed tasks (``start_time is None``) never get check-ins
     - only tasks scheduled for the user's local today
     - local time must be at/after ``start_time``
     - active ``checkin_snooze_until`` suppresses prompts
     - first check-in is sent immediately after start_time
-    - subsequent check-ins respect ``interval_minutes`` anti-spam
+    - if *no_spam* is True and a check-in was already sent (``last_checkin_at``
+      set), do not re-send until the user responds / state is cleared
+    - otherwise subsequent check-ins respect ``interval_minutes`` anti-spam
     """
     if interval_minutes is None or interval_minutes <= 0:
         return False
     if task.is_completed or task.is_placeholder:
+        return False
+    if task.start_time is None:
         return False
     if task.date != local_dt.date():
         return False
@@ -72,6 +78,10 @@ def is_checkin_due(
 
     if task.last_checkin_at is None:
         return True
+
+    # User setting: stop after the first unanswered check-in for this task.
+    if no_spam:
+        return False
 
     last = task.last_checkin_at
     if last.tzinfo is None:
@@ -120,6 +130,7 @@ async def process_checkins(bot: Bot) -> int:
 
             local_date = user_local.date()
             lang = normalize_lang(user.language)
+            no_spam = bool(getattr(user, "checkin_no_spam", True))
 
             tasks_result = await session.execute(
                 select(Task).where(
@@ -136,6 +147,7 @@ async def process_checkins(bot: Bot) -> int:
                     task,
                     local_dt=user_local,
                     interval_minutes=interval,
+                    no_spam=no_spam,
                 ):
                     continue
 

@@ -66,11 +66,12 @@ class ScheduleItemResponse(BaseModel):
     id: int
     title: str
     date: datetime.date
-    start_time: str
+    start_time: str | None
     end_time: str | None
     is_completed: bool
     is_placeholder: bool
     habit_id: int | None
+    auto_rollover: bool = False
 
 
 class ScheduleResponse(BaseModel):
@@ -123,6 +124,8 @@ class MeResponse(BaseModel):
     timezone: str
     reminder_time: str | None = None
     check_interval: int
+    checkin_no_spam: bool = True
+    ask_auto_rollover: bool = False
 
 
 class MeUpdateRequest(BaseModel):
@@ -138,6 +141,8 @@ class MeUpdateRequest(BaseModel):
         description="HH:MM or null to disable; omit field to leave unchanged",
     )
     check_interval: Optional[int] = None
+    checkin_no_spam: Optional[bool] = None
+    ask_auto_rollover: Optional[bool] = None
 
     model_config = {"extra": "forbid"}
 
@@ -148,11 +153,12 @@ class TaskResponse(BaseModel):
     id: int
     title: str
     date: datetime.date
-    start_time: str
+    start_time: str | None
     end_time: str | None
     is_completed: bool
     is_placeholder: bool
     habit_id: int | None
+    auto_rollover: bool = False
 
 
 class TaskListResponse(BaseModel):
@@ -170,10 +176,13 @@ class TaskCreateRequest(BaseModel):
 
     title: str = Field(..., min_length=1, max_length=200)
     date: datetime.date
-    start_time: str = Field(..., description="HH:MM on 15-minute grid")
+    start_time: Optional[str] = Field(
+        default=None, description="HH:MM on 15-minute grid, or null for untimed"
+    )
     end_time: Optional[str] = Field(
         default=None, description="HH:MM or null for open-ended"
     )
+    auto_rollover: bool = False
 
     model_config = {"extra": "forbid"}
 
@@ -190,6 +199,7 @@ class TaskUpdateRequest(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     is_completed: Optional[bool] = None
+    auto_rollover: Optional[bool] = None
 
     model_config = {"extra": "forbid"}
 

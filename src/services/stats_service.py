@@ -47,11 +47,12 @@ class ScheduleItem:
     id: int
     title: str
     date: date
-    start_time: str
+    start_time: str | None
     end_time: str | None
     is_completed: bool
     is_placeholder: bool
     habit_id: int | None
+    auto_rollover: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,17 +243,21 @@ async def get_schedule(
 
     items: list[ScheduleItem] = []
     for task in tasks:
+        start = (
+            task.start_time.strftime("%H:%M") if task.start_time else None
+        )
         end = task.end_time.strftime("%H:%M") if task.end_time else None
         items.append(
             ScheduleItem(
                 id=task.id,
                 title=task.title,
                 date=task.date,
-                start_time=task.start_time.strftime("%H:%M"),
+                start_time=start,
                 end_time=end,
                 is_completed=bool(task.is_completed),
                 is_placeholder=bool(task.is_placeholder),
                 habit_id=task.habit_id,
+                auto_rollover=bool(getattr(task, "auto_rollover", False)),
             )
         )
     return items

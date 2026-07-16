@@ -525,8 +525,21 @@ def get_task_confirm_keyboard() -> InlineKeyboardMarkup:
 # ---------------------------------------------------------------------------
 
 
+def _format_task_time_label(task, lang: str = "ru") -> str:
+    """Human-readable time range for a task button/list row."""
+    if getattr(task, "start_time", None) is None:
+        return t("task.untimed", lang)
+    if task.end_time is None:
+        return f"{task.start_time.strftime('%H:%M')}, {t('task.open_ended', lang)}"
+    return (
+        f"{task.start_time.strftime('%H:%M')}"
+        f"–{task.end_time.strftime('%H:%M')}"
+    )
+
+
 def get_tasks_completion_keyboard(
     tasks: list,
+    lang: str = "ru",
 ) -> InlineKeyboardMarkup:
     """Build an inline keyboard where each task is a toggle button.
 
@@ -536,6 +549,7 @@ def get_tasks_completion_keyboard(
     Args:
         tasks: A list of ``Task`` ORM objects (must have ``id``,
             ``title``, ``start_time``, ``end_time``, ``is_completed``).
+        lang: User language code for untimed / open-ended labels.
 
     Returns:
         InlineKeyboardMarkup with one task button per row, plus a
@@ -544,18 +558,13 @@ def get_tasks_completion_keyboard(
     builder = InlineKeyboardBuilder()
     for task in tasks:
         status = "✅" if task.is_completed else "⬜"
-        if task.end_time is None:
-            time_str = f"{task.start_time.strftime('%H:%M')}, без окончания"
-        else:
-            time_str = (
-                f"{task.start_time.strftime('%H:%M')}"
-                f"–{task.end_time.strftime('%H:%M')}"
-            )
+        time_str = _format_task_time_label(task, lang)
         label = f"{status} {task.title} ({time_str})"
         builder.button(text=label, callback_data=f"task:toggle:{task.id}")
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.adjust(1)  # one button per row
     return finalize_markup(builder)
+
 
 
 # ---------------------------------------------------------------------------
@@ -565,30 +574,50 @@ def get_tasks_completion_keyboard(
 
 def get_schedule_management_keyboard(
     tasks: list,
+    *,
+    add_date: date | None = None,
+    lang: str = "ru",
 ) -> InlineKeyboardMarkup:
     """Build an inline keyboard with each task as a clickable manage button.
 
     Args:
         tasks: A list of ``Task`` ORM objects.
+        add_date: If set, show «Add task» for this date above Back.
+        lang: User language code.
 
     Returns:
-        InlineKeyboardMarkup with one task-per-row and 🔙 Назад button.
+        InlineKeyboardMarkup with one task-per-row, optional add, and Back.
     """
     builder = InlineKeyboardBuilder()
     for task in tasks:
         status = "✅" if task.is_completed else "⬜"
-        if task.end_time is None:
-            time_str = f"{task.start_time.strftime('%H:%M')}, без окончания"
-        else:
-            time_str = (
-                f"{task.start_time.strftime('%H:%M')}"
-                f"–{task.end_time.strftime('%H:%M')}"
-            )
+        time_str = _format_task_time_label(task, lang)
         label = f"{status} {task.title} ({time_str})"
         builder.button(text=label, callback_data=f"task:manage:{task.id}")
+    if add_date is not None:
+        builder.button(
+            text=t("task.add_today", lang),
+            callback_data=f"task:add:{add_date.isoformat()}",
+        )
     builder.button(text="🔙 Назад", callback_data="nav:back")
     builder.adjust(1)
     return finalize_markup(builder)
+
+
+def get_ask_rollover_keyboard(task_id: int, lang: str = "ru") -> InlineKeyboardMarkup:
+    """Yes/No keyboard after creating a task (auto-rollover prompt)."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=t("task.rollover_yes", lang),
+        callback_data=f"task:rollover_yes:{task_id}",
+    )
+    builder.button(
+        text=t("task.rollover_no", lang),
+        callback_data=f"task:rollover_no:{task_id}",
+    )
+    builder.adjust(1, 1)
+    return finalize_markup(builder)
+
 
 
 # ---------------------------------------------------------------------------
@@ -678,18 +707,22 @@ def get_task_action_keyboard(
     is_completed: bool = False,
     has_habit: bool = False,
     is_modified: bool = False,
+    auto_rollover: bool = False,
+    lang: str = "ru",
 ) -> InlineKeyboardMarkup:
     """Build an inline keyboard with task action buttons.
 
     Shown when the user taps a task in the schedule.  Includes a toggle
-    button for completion status, edit, delete, optional reset-to-habit,
-    back, and main menu.
+    button for completion status, edit, delete, auto-rollover, optional
+    reset-to-habit, back, and main menu.
 
     Args:
         task_id: ID of the task.
         is_completed: Current completion status of the task.
         has_habit: Whether the task is linked to a habit.
         is_modified: Whether the task differs from its habit template.
+        auto_rollover: Current auto-rollover flag for the task.
+        lang: User language code.
 
     Returns:
         InlineKeyboardMarkup with action buttons.
@@ -713,6 +746,13 @@ def get_task_action_keyboard(
         text="🗑 Удалить",
         callback_data=f"task:delete:{task_id}",
     )
+    rollover_key = (
+        "task.btn_rollover_on" if auto_rollover else "task.btn_rollover_off"
+    )
+    builder.button(
+        text=t(rollover_key, lang),
+        callback_data=f"task:toggle_rollover:{task_id}",
+    )
     if has_habit and is_modified:
         builder.button(
             text="🔄 Сбросить к привычке",
@@ -720,12 +760,13 @@ def get_task_action_keyboard(
         )
     builder.button(text="⬅️ Назад", callback_data="nav:back")
     builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
-    row_spec = [1, 1, 1]
+    row_spec = [1, 1, 1, 1]
     if has_habit and is_modified:
         row_spec.append(1)
     row_spec.append(2)
     builder.adjust(*row_spec)
     return finalize_markup(builder)
+
 
 
 # ---------------------------------------------------------------------------
@@ -1028,15 +1069,22 @@ def get_habit_conflict_resolution_keyboard(
 # =============================================================================
 
 
-def get_settings_menu_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+def get_settings_menu_keyboard(
+    lang: str = "ru",
+    *,
+    checkin_no_spam: bool = True,
+    ask_auto_rollover: bool = False,
+) -> InlineKeyboardMarkup:
     """Build the main settings menu keyboard.
 
     Args:
         lang: User language code (``ru`` / ``en``).
+        checkin_no_spam: Current anti-spam setting (shown on toggle button).
+        ask_auto_rollover: Current post-create rollover prompt setting.
 
     Returns:
         Inline keyboard with language, timezone, reminder_time,
-        check_interval buttons plus Back and Main menu.
+        check_interval, toggles plus Back and Main menu.
     """
     builder = InlineKeyboardBuilder()
     builder.button(
@@ -1055,13 +1103,24 @@ def get_settings_menu_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
         text=t("settings.btn_interval", lang),
         callback_data="settings:check_interval",
     )
+    no_spam_state = t("common.on", lang) if checkin_no_spam else t("common.off", lang)
+    ask_state = t("common.on", lang) if ask_auto_rollover else t("common.off", lang)
+    builder.button(
+        text=t("settings.btn_no_spam", lang, state=no_spam_state),
+        callback_data="settings:toggle_no_spam",
+    )
+    builder.button(
+        text=t("settings.btn_ask_rollover", lang, state=ask_state),
+        callback_data="settings:toggle_ask_rollover",
+    )
     builder.button(text=t("common.back", lang), callback_data="nav:back")
     builder.button(
         text=t("common.main_menu_btn", lang),
         callback_data="nav:cancel",
     )
-    builder.adjust(1, 1, 1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1, 1, 1, 1)
     return finalize_markup(builder)
+
 
 
 def get_language_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:

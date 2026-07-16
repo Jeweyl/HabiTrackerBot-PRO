@@ -38,6 +38,10 @@ class User(Base):
         timezone: User's timezone string (default 'UTC').
         reminder_time: Preferred daily reminder time (optional).
         check_interval: Reminder check interval in minutes.
+        checkin_no_spam: If True, do not re-send check-ins when the user
+            ignores the first prompt for a task today.
+        ask_auto_rollover: If True, ask about auto-rollover after creating
+            a task.
         last_reminder_date: Local date when the last reminder was sent.
         created_at: Timestamp of record creation.
         updated_at: Timestamp of last update.
@@ -62,6 +66,12 @@ class User(Base):
     )
     check_interval: Mapped[int] = mapped_column(
         Integer, default=15, server_default="15"
+    )
+    checkin_no_spam: Mapped[bool] = mapped_column(
+        default=True, server_default="true"
+    )
+    ask_auto_rollover: Mapped[bool] = mapped_column(
+        default=False, server_default="false"
     )
     last_reminder_date: Mapped[Optional[date]] = mapped_column(
         Date, nullable=True, default=None
@@ -129,10 +139,12 @@ class Task(Base):
             the task was created manually, not from a habit).
         title: Task description (1–200 characters).
         date: The date on which the task is scheduled.
-        start_time: Start time of the task.
+        start_time: Start time of the task (``None`` = untimed todo, no check-ins).
         end_time: End time of the task (optional — ``None`` means open-ended).
         is_completed: Whether the task has been marked as done.
         is_placeholder: Whether this is a placeholder task (ЗАНЯТ).
+        auto_rollover: If True and incomplete, shift ``date`` to the next day
+            at local midnight.
         last_checkin_at: UTC timestamp of the last check-in prompt (anti-spam).
         checkin_snooze_until: UTC timestamp until which check-ins are suppressed
             (mute until end of day, or snooze for N minutes).
@@ -150,10 +162,13 @@ class Task(Base):
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    start_time: Mapped[time] = mapped_column(Time, nullable=False)
+    start_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     end_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     is_completed: Mapped[bool] = mapped_column(default=False, server_default=false())
     is_placeholder: Mapped[bool] = mapped_column(default=False, server_default=false())
+    auto_rollover: Mapped[bool] = mapped_column(
+        default=False, server_default=false()
+    )
     last_checkin_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
@@ -165,8 +180,6 @@ class Task(Base):
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
     )
-
-
 
 
 class Habit(Base):

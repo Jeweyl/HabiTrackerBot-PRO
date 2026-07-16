@@ -25,7 +25,7 @@ async def is_time_slot_free(
     session: AsyncSession,
     user_id: int,
     task_date: date,
-    start_time: time,
+    start_time: time | None,
     end_time: time | None,
     exclude_task_id: int | None = None,
 ) -> bool:
@@ -43,11 +43,15 @@ async def is_time_slot_free(
        **and** which is either open‑ended or ends after the proposed
        *start_time*.
 
+    Untimed tasks (``start_time is None``) never occupy a clock slot and
+    always return free. Existing untimed tasks are ignored in conflict
+    checks for timed proposals.
+
     Args:
         session: Active async database session.
         user_id: Internal user identifier.
         task_date: Date of the proposed task.
-        start_time: Start time of the proposed task.
+        start_time: Start time of the proposed task (``None`` = untimed).
         end_time: End time of the proposed task (``None`` = open‑ended).
         exclude_task_id: If provided, exclude this task from the conflict
             check (used when editing an existing task).
@@ -55,10 +59,14 @@ async def is_time_slot_free(
     Returns:
         ``True`` if the slot is free, ``False`` if a conflict exists.
     """
+    if start_time is None:
+        return True
+
     if end_time is None:
         conditions = [
             Task.user_id == user_id,
             Task.date == task_date,
+            Task.start_time.is_not(None),
             or_(
                 Task.end_time.is_(None),
                 Task.end_time > start_time,
@@ -68,6 +76,7 @@ async def is_time_slot_free(
         conditions = [
             Task.user_id == user_id,
             Task.date == task_date,
+            Task.start_time.is_not(None),
             Task.start_time < end_time,
             or_(
                 Task.end_time.is_(None),

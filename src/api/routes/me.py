@@ -29,6 +29,8 @@ def _user_to_me(user: User) -> MeResponse:
         timezone=user.timezone or "UTC",
         reminder_time=settings_svc.format_reminder_time(user.reminder_time),
         check_interval=int(user.check_interval or 15),
+        checkin_no_spam=bool(getattr(user, "checkin_no_spam", True)),
+        ask_auto_rollover=bool(getattr(user, "ask_auto_rollover", False)),
     )
 
 
@@ -109,6 +111,12 @@ async def patch_me(
             )
         except ValueError as exc:
             raise _http_422(str(exc)) from exc
+
+    if body.checkin_no_spam is not None:
+        user.checkin_no_spam = bool(body.checkin_no_spam)
+
+    if body.ask_auto_rollover is not None:
+        user.ask_auto_rollover = bool(body.ask_auto_rollover)
 
     session.add(user)
     await session.flush()

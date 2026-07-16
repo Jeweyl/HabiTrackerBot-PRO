@@ -13,7 +13,9 @@ from sqlalchemy import select
 from src.db.models import Habit, Task, User
 from src.db.session import get_db
 from src.i18n import t
+from src.i18n import normalize_lang
 from src.keyboards.inline import (
+    get_ask_rollover_keyboard,
     get_cancel_input_keyboard,
     get_conflict_resolution_keyboard,
     get_day_keyboard,
@@ -30,6 +32,7 @@ from src.keyboards.inline import (
     get_tasks_completion_keyboard,
     get_time_selection_keyboard,
 )
+
 
 from src.services.habit_generator import lazy_generate_for_range
 from src.states.fsm import ConflictFSM, EditTaskFSM, MainFSM, NewTaskFSM
@@ -54,6 +57,26 @@ async def _get_user_id(telegram_id: int, session) -> int | None:
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
     return user.id if user else None
+
+
+async def _get_user(telegram_id: int, session) -> User | None:
+    """Look up a User by Telegram ID."""
+    stmt = select(User).where(User.telegram_id == telegram_id)
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+def _format_task_time_str(task: Task, lang: str = "ru") -> str:
+    """Human-readable time range for schedule text."""
+    if task.start_time is None:
+        return t("task.untimed", lang)
+    if task.end_time is None:
+        return f"{task.start_time.strftime('%H:%M')}, {t('task.open_ended', lang)}"
+    return (
+        f"{task.start_time.strftime('%H:%M')}"
+        f"–{task.end_time.strftime('%H:%M')}"
+    )
+
 
 
 # ===========================================================================
@@ -84,47 +107,57 @@ async def _show_schedule(
     send = target.edit_text if edit else target.answer
 
     async with get_db() as session:
-        user_id = await _get_user_id(telegram_id, session)
-        if user_id is None:
+        user = await _get_user(telegram_id, session)
+        if user is None:
             await send(
                 "⚠️ Пользователь не найден. Используйте /start для регистрации.",
                 reply_markup=get_main_menu_keyboard(),
             )
             return
+        user_id = user.id
+        lang = normalize_lang(user.language)
 
         stmt = (
             select(Task)
             .where(Task.user_id == user_id, Task.date == schedule_date)
-            .order_by(Task.start_time)
+            .order_by(Task.start_time.nulls_last(), Task.id)
         )
         result = await session.execute(stmt)
         tasks = result.scalars().all()
 
     if not tasks:
+        empty_kb = (
+            get_schedule_management_keyboard(
+                [],
+                add_date=schedule_date,
+                lang=lang,
+            )
+            if show_management_buttons
+            else get_simple_schedule_keyboard()
+        )
         await send(
             "На этот день задач нет.",
-            reply_markup=get_simple_schedule_keyboard(),
+            reply_markup=empty_kb,
         )
         return
 
     lines = [f"📅 Расписание на {schedule_date.isoformat()}:"]
     for i, task in enumerate(tasks, start=1):
         status = "✅" if task.is_completed else "⬜"
-        if task.end_time is None:
-            time_str = f"{task.start_time.strftime('%H:%M')}, без окончания"
-        else:
-            time_str = (
-                f"{task.start_time.strftime('%H:%M')}"
-                f"–{task.end_time.strftime('%H:%M')}"
-            )
+        time_str = _format_task_time_str(task, lang)
         lines.append(f"{i}. {status} {task.title} ({time_str})")
 
     keyboard = (
-        get_schedule_management_keyboard(tasks)
+        get_schedule_management_keyboard(
+            tasks,
+            add_date=schedule_date,
+            lang=lang,
+        )
         if show_management_buttons
         else get_simple_schedule_keyboard()
     )
     await send("\n".join(lines), reply_markup=keyboard)
+
 
 
 # ===========================================================================
@@ -269,7 +302,7 @@ async def process_task_title(message: Message, state: FSMContext) -> None:
 
     await message.answer(
         "⏰ Выберите время начала задачи:",
-        reply_markup=get_time_selection_keyboard(),
+        reply_markup=get_time_selection_keyboard(show_null_option=True),
     )
 
 
@@ -285,10 +318,12 @@ async def process_task_start_time(callback: CallbackQuery, state: FSMContext) ->
     kind, payload = parse_time_callback(callback.data)
 
     if kind == "null":
-        await callback.message.edit_text(
-            "⚠️ Для времени начала необходимо выбрать конкретное время.",
-            reply_markup=get_time_selection_keyboard(),
+        await state.update_data(
+            task_start_time=None,
+            task_end_time=None,
+            **{PENDING_HOUR_KEY: None},
         )
+        await _show_task_confirm(callback, state)
         return
 
     if kind == "hour":
@@ -296,14 +331,14 @@ async def process_task_start_time(callback: CallbackQuery, state: FSMContext) ->
         await state.update_data(**{PENDING_HOUR_KEY: hour})
         await callback.message.edit_text(
             f"⏰ Выберите минуты для {hour:02d}:xx:",
-            reply_markup=get_minute_selection_keyboard(hour),
+            reply_markup=get_minute_selection_keyboard(hour, show_null_option=True),
         )
         return
 
     if kind != "final":
         await callback.message.edit_text(
             "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
-            reply_markup=get_time_selection_keyboard(),
+            reply_markup=get_time_selection_keyboard(show_null_option=True),
         )
         return
 
@@ -390,11 +425,13 @@ async def _show_task_confirm(
     data = await state.get_data()
     task_date = data.get("task_date", "—")
     task_title = data.get("task_title", "—")
-    start_str = data.get("task_start_time", "—")
+    start_str = data.get("task_start_time")
     end_str = data.get("task_end_time")
 
-    if end_str is None:
-        time_display = f"{start_str} (без окончания)"
+    if start_str is None:
+        time_display = t("task.untimed", "ru")
+    elif end_str is None:
+        time_display = f"{start_str} ({t('task.open_ended', 'ru')})"
     else:
         time_display = f"{start_str} – {end_str}"
 
@@ -423,10 +460,11 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     task_date_str: str = data.get("task_date", "")
     task_title: str = data.get("task_title", "")
-    start_str: str = data.get("task_start_time", "")
+    start_str: str | None = data.get("task_start_time")
     end_str: str | None = data.get("task_end_time")
 
-    if not task_date_str or not task_title or not start_str:
+    # start_str may be None for untimed tasks; empty string is invalid.
+    if not task_date_str or not task_title or start_str == "":
         await callback.message.edit_text(
             "⚠️ Произошла ошибка. Не хватает данных. " "Начните создание задачи заново.",
             reply_markup=get_main_menu_keyboard(),
@@ -436,13 +474,15 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     task_date = date.fromisoformat(task_date_str)
-    new_start_time = time.fromisoformat(start_str)
+    new_start_time = time.fromisoformat(start_str) if start_str else None
     new_end_time = time.fromisoformat(end_str) if end_str else None
+    if new_start_time is None:
+        new_end_time = None
     telegram_id = callback.from_user.id
 
     async with get_db() as session:
-        user_id = await _get_user_id(telegram_id, session)
-        if user_id is None:
+        user = await _get_user(telegram_id, session)
+        if user is None:
             await callback.message.edit_text(
                 "⚠️ Пользователь не найден. Используйте /start для регистрации.",
                 reply_markup=get_main_menu_keyboard(),
@@ -450,8 +490,11 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
             await state.clear()
             await state.set_state(MainFSM.main_menu)
             return
+        user_id = user.id
+        lang = normalize_lang(user.language)
+        ask_rollover = bool(getattr(user, "ask_auto_rollover", False))
 
-        if not await is_time_slot_free(
+        if new_start_time is not None and not await is_time_slot_free(
             session, user_id, task_date, new_start_time, new_end_time
         ):
             await state.set_state(ConflictFSM.choose_action)
@@ -463,16 +506,22 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
             )
             return
 
-        await _persist_task(
+        task = await _persist_task(
             session, user_id, task_date, task_title, new_start_time, new_end_time
         )
+        task_id = task.id
 
     await state.clear()
     await state.set_state(MainFSM.main_menu)
 
     await callback.message.answer(
-        f"✅ Задача «{task_title}» успешно создана на {task_date.isoformat()}!",
+        t("task.created_ok", lang, title=task_title, date=task_date.isoformat()),
     )
+    if ask_rollover:
+        await callback.message.answer(
+            t("task.ask_rollover", lang, title=task_title),
+            reply_markup=get_ask_rollover_keyboard(task_id, lang),
+        )
     await _show_schedule(
         telegram_id=telegram_id,
         target=callback.message,
@@ -482,13 +531,16 @@ async def save_task(callback: CallbackQuery, state: FSMContext) -> None:
     )
 
 
+
 async def _persist_task(
     session,
     user_id: int,
     task_date: date,
     task_title: str,
-    start_time: time,
+    start_time: time | None,
     end_time: time | None,
+    *,
+    auto_rollover: bool = False,
 ) -> Task:
     """Create and persist a Task row within an existing session."""
     task = Task(
@@ -500,6 +552,7 @@ async def _persist_task(
         end_time=end_time,
         is_completed=False,
         is_placeholder=False,
+        auto_rollover=auto_rollover,
     )
     session.add(task)
     await session.commit()
@@ -569,13 +622,15 @@ async def _conflict_save_and_show(
     end_str: str | None = data.get("task_end_time")
 
     task_date = date.fromisoformat(task_date_str)
-    new_start_time = time.fromisoformat(start_str)
+    new_start_time = time.fromisoformat(start_str) if start_str else None
     new_end_time = time.fromisoformat(end_str) if end_str else None
+    if new_start_time is None:
+        new_end_time = None
     telegram_id = callback.from_user.id
 
     async with get_db() as session:
-        user_id = await _get_user_id(telegram_id, session)
-        if user_id is None:
+        user = await _get_user(telegram_id, session)
+        if user is None:
             await callback.message.edit_text(
                 "⚠️ Пользователь не найден. Используйте /start для регистрации.",
                 reply_markup=get_main_menu_keyboard(),
@@ -583,10 +638,14 @@ async def _conflict_save_and_show(
             await state.clear()
             await state.set_state(MainFSM.main_menu)
             return
+        user_id = user.id
+        lang = normalize_lang(user.language)
+        ask_rollover = bool(getattr(user, "ask_auto_rollover", False))
 
-        await _persist_task(
+        task = await _persist_task(
             session, user_id, task_date, task_title, new_start_time, new_end_time
         )
+        task_id = task.id
 
     await state.clear()
     await state.set_state(MainFSM.main_menu)
@@ -594,6 +653,11 @@ async def _conflict_save_and_show(
     await callback.message.answer(
         f"✅ Задача «{task_title}» добавлена (с перекрытием) на {task_date.isoformat()}!",
     )
+    if ask_rollover:
+        await callback.message.answer(
+            t("task.ask_rollover", lang, title=task_title),
+            reply_markup=get_ask_rollover_keyboard(task_id, lang),
+        )
     await _show_schedule(
         telegram_id=telegram_id,
         target=callback.message,
@@ -640,13 +704,15 @@ async def manage_task(callback: CallbackQuery, state: FSMContext) -> None:
     task_id = int(callback.data.split(":")[2])
 
     async with get_db() as session:
-        user_id = await _get_user_id(callback.from_user.id, session)
-        if user_id is None:
+        user = await _get_user(callback.from_user.id, session)
+        if user is None:
             await callback.message.edit_text(
                 "⚠️ Пользователь не найден. Используйте /start для регистрации.",
                 reply_markup=get_main_menu_keyboard(),
             )
             return
+        user_id = user.id
+        lang = normalize_lang(user.language)
 
         task = await session.get(Task, task_id)
         if task is None or task.user_id != user_id:
@@ -667,33 +733,35 @@ async def manage_task(callback: CallbackQuery, state: FSMContext) -> None:
                 )
 
     # Store original task data in FSM for potential reset/restore
+    auto_rollover = bool(getattr(task, "auto_rollover", False))
     await state.update_data(
         edit_task_id=task_id,
         original_task_date=task.date.isoformat(),
         original_task_title=task.title,
-        original_task_start_time=task.start_time.isoformat(timespec="minutes"),
+        original_task_start_time=(
+            task.start_time.isoformat(timespec="minutes") if task.start_time else None
+        ),
         original_task_end_time=(
             task.end_time.isoformat(timespec="minutes") if task.end_time else None
         ),
     )
     await state.set_state(EditTaskFSM.choose_action)
 
+    time_label = _format_task_time_str(task, lang)
     await callback.message.edit_text(
         f"Управление задачей «{task.title}»:\n"
         f"📅 {task.date.isoformat()} | "
-        f"⏰ {task.start_time.strftime('%H:%M')}"
-        + (
-            f"–{task.end_time.strftime('%H:%M')}"
-            if task.end_time
-            else ", без окончания"
-        ),
+        f"⏰ {time_label}",
         reply_markup=get_task_action_keyboard(
             task_id=task_id,
             is_completed=task.is_completed,
             has_habit=has_habit,
             is_modified=is_modified,
+            auto_rollover=auto_rollover,
+            lang=lang,
         ),
     )
+
 
 
 # ===========================================================================
@@ -807,7 +875,9 @@ async def start_edit_task(callback: CallbackQuery, state: FSMContext) -> None:
             edit_task_id=task_id,
             pending_title=task.title,
             pending_date=task.date.isoformat(),
-            pending_start_time=task.start_time.isoformat(timespec="minutes"),
+            pending_start_time=(
+                task.start_time.isoformat(timespec="minutes") if task.start_time else None
+            ),
             pending_end_time=(
                 task.end_time.isoformat(timespec="minutes") if task.end_time else None
             ),
@@ -862,7 +932,7 @@ async def edit_task_start_time_prompt(
     await state.set_state(EditTaskFSM.edit_start_time)
     await callback.message.edit_text(
         "🕐 Выберите новое время начала:",
-        reply_markup=get_time_selection_keyboard(),
+        reply_markup=get_time_selection_keyboard(show_null_option=True),
     )
 
 
@@ -947,29 +1017,45 @@ async def apply_edit_task_date(callback: CallbackQuery, state: FSMContext) -> No
 @router.callback_query(
     EditTaskFSM.edit_start_time,
     F.data.startswith("time:"),
-    F.data != "time:null",
 )
 async def apply_edit_task_start_time(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    """Apply a new start time, automatically extending end_time."""
+    """Apply a new start time, automatically extending end_time.
+
+    ``time:null`` clears start/end (untimed task).
+    """
     await callback.answer()
     kind, payload = parse_time_callback(callback.data)
+
+    if kind == "null":
+        await state.update_data(
+            pending_start_time=None,
+            pending_end_time=None,
+            **{PENDING_HOUR_KEY: None},
+        )
+        await state.set_state(EditTaskFSM.edit_field)
+        await callback.message.edit_text(
+            f"✅ Время сброшено ({t('task.untimed', 'ru')}).\n"
+            "Что вы хотите изменить в задаче?",
+            reply_markup=get_edit_task_field_keyboard(),
+        )
+        return
 
     if kind == "hour":
         hour = int(payload)  # type: ignore[arg-type]
         await state.update_data(**{PENDING_HOUR_KEY: hour})
         await callback.message.edit_text(
             f"🕐 Выберите минуты для {hour:02d}:xx:",
-            reply_markup=get_minute_selection_keyboard(hour),
+            reply_markup=get_minute_selection_keyboard(hour, show_null_option=True),
         )
         return
 
     if kind != "final":
         await callback.message.edit_text(
             "⚠️ Некорректное время. Пожалуйста, выберите время из списка.",
-            reply_markup=get_time_selection_keyboard(),
+            reply_markup=get_time_selection_keyboard(show_null_option=True),
         )
         return
 
@@ -1181,6 +1267,7 @@ async def reset_task_to_habit(callback: CallbackQuery, state: FSMContext) -> Non
         has_habit = True
         is_modified = False
 
+    auto_rollover = bool(getattr(task, "auto_rollover", False))
     await state.set_state(EditTaskFSM.choose_action)
     await callback.message.edit_text(
         f"🔄 Время задачи «{task.title}» сброшено к шаблону привычки.\n\n"
@@ -1190,8 +1277,10 @@ async def reset_task_to_habit(callback: CallbackQuery, state: FSMContext) -> Non
             is_completed=task.is_completed,
             has_habit=has_habit,
             is_modified=is_modified,
+            auto_rollover=auto_rollover,
         ),
     )
+
 
 
 # ===========================================================================
@@ -1215,7 +1304,7 @@ async def confirm_edit_changes(callback: CallbackQuery, state: FSMContext) -> No
         not task_id
         or not pending_title
         or not pending_date_str
-        or not pending_start_str
+        or pending_start_str == ""
     ):
         await callback.message.edit_text(
             "⚠️ Не хватает данных. Редактирование отменено.",
@@ -1226,8 +1315,12 @@ async def confirm_edit_changes(callback: CallbackQuery, state: FSMContext) -> No
         return
 
     pending_date = date.fromisoformat(pending_date_str)
-    pending_start = time.fromisoformat(pending_start_str)
+    pending_start = (
+        time.fromisoformat(pending_start_str) if pending_start_str else None
+    )
     pending_end = time.fromisoformat(pending_end_str) if pending_end_str else None
+    if pending_start is None:
+        pending_end = None
     telegram_id = callback.from_user.id
 
     async with get_db() as session:
@@ -1248,8 +1341,8 @@ async def confirm_edit_changes(callback: CallbackQuery, state: FSMContext) -> No
             )
             return
 
-        # Conflict check (excluding this task itself)
-        if not await is_time_slot_free(
+        # Conflict check (excluding this task itself); untimed always free
+        if pending_start is not None and not await is_time_slot_free(
             session,
             user_id,
             pending_date,
@@ -1405,9 +1498,11 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
                 is_completed=task.is_completed if task else False,
                 has_habit=has_habit if task else False,
                 is_modified=is_modified if task else False,
+                auto_rollover=bool(getattr(task, "auto_rollover", False)) if task else False,
             ),
         )
         return
+
 
     if current_state in (
         EditTaskFSM.edit_title.state,
@@ -1425,6 +1520,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
             min_time = None
             show_null = False
             prompt = "🕐 Выберите новое время начала:"
+            show_null = True  # start may be untimed
             if current_state == EditTaskFSM.edit_end_time.state:
                 prompt = "🕐 Выберите новое время окончания:"
                 show_null = True
@@ -1468,7 +1564,7 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
             await state.update_data(**{PENDING_HOUR_KEY: None})
             await callback.message.edit_text(
                 "⏰ Выберите время начала задачи:",
-                reply_markup=get_time_selection_keyboard(),
+                reply_markup=get_time_selection_keyboard(show_null_option=True),
             )
             return
         await state.set_state(NewTaskFSM.title)
@@ -1495,15 +1591,22 @@ async def handle_task_back(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(NewTaskFSM.start_time)
         await callback.message.edit_text(
             "⏰ Выберите время начала задачи:",
-            reply_markup=get_time_selection_keyboard(),
+            reply_markup=get_time_selection_keyboard(show_null_option=True),
         )
         return
 
     if current_state == NewTaskFSM.confirm.state:
         await state.update_data(**{PENDING_HOUR_KEY: None})
-        await state.set_state(NewTaskFSM.end_time)
         fsm_data = await state.get_data()
         st_str = fsm_data.get("task_start_time")
+        if st_str is None:
+            await state.set_state(NewTaskFSM.start_time)
+            await callback.message.edit_text(
+                "⏰ Выберите время начала задачи:",
+                reply_markup=get_time_selection_keyboard(show_null_option=True),
+            )
+            return
+        await state.set_state(NewTaskFSM.end_time)
         st = time.fromisoformat(st_str) if st_str else None
         await callback.message.edit_text(
             "⏰ Выберите время окончания задачи:",
@@ -1614,7 +1717,7 @@ async def complete_tasks_mode(callback: CallbackQuery, state: FSMContext) -> Non
         stmt = (
             select(Task)
             .where(Task.user_id == user_id, Task.date == today)
-            .order_by(Task.start_time)
+            .order_by(Task.start_time.nulls_last(), Task.id)
         )
         result = await session.execute(stmt)
         tasks = result.scalars().all()
@@ -1630,6 +1733,7 @@ async def complete_tasks_mode(callback: CallbackQuery, state: FSMContext) -> Non
         "📅 Отметьте выполненные задачи:",
         reply_markup=get_tasks_completion_keyboard(tasks),
     )
+
 
 
 # ===========================================================================
@@ -1696,6 +1800,7 @@ async def toggle_task_completion(
                 is_completed=task.is_completed,
                 has_habit=has_habit,
                 is_modified=is_modified,
+                auto_rollover=bool(getattr(task, "auto_rollover", False)),
             ),
         )
         return
@@ -1717,11 +1822,105 @@ async def toggle_task_completion(
         stmt = (
             select(Task)
             .where(Task.user_id == user_id, Task.date == today)
-            .order_by(Task.start_time)
+            .order_by(Task.start_time.nulls_last(), Task.id)
         )
         result = await session.execute(stmt)
         tasks = result.scalars().all()
 
     await callback.message.edit_reply_markup(
         reply_markup=get_tasks_completion_keyboard(tasks),
+    )
+
+
+
+# ===========================================================================
+# Auto-rollover: post-create ask + manage toggle
+# ===========================================================================
+
+
+@router.callback_query(F.data.startswith("task:rollover_yes:"))
+async def rollover_yes(callback: CallbackQuery, state: FSMContext) -> None:
+    """Enable auto-rollover after task creation prompt."""
+    await callback.answer()
+    task_id = int(callback.data.split(":")[2])
+    async with get_db() as session:
+        user = await _get_user(callback.from_user.id, session)
+        if user is None:
+            await callback.message.edit_text(t("common.user_not_found", "ru"))
+            return
+        lang = normalize_lang(user.language)
+        task = await session.get(Task, task_id)
+        if task is None or task.user_id != user.id:
+            await callback.answer(t("checkin.task_not_found", lang), show_alert=True)
+            return
+        task.auto_rollover = True
+        title = task.title
+        await session.commit()
+    await callback.message.edit_text(t("task.rollover_enabled", lang, title=title))
+
+
+@router.callback_query(F.data.startswith("task:rollover_no:"))
+async def rollover_no(callback: CallbackQuery, state: FSMContext) -> None:
+    """Decline auto-rollover after task creation prompt."""
+    await callback.answer()
+    task_id = int(callback.data.split(":")[2])
+    async with get_db() as session:
+        user = await _get_user(callback.from_user.id, session)
+        if user is None:
+            await callback.message.edit_text(t("common.user_not_found", "ru"))
+            return
+        lang = normalize_lang(user.language)
+        task = await session.get(Task, task_id)
+        if task is None or task.user_id != user.id:
+            await callback.answer(t("checkin.task_not_found", lang), show_alert=True)
+            return
+        task.auto_rollover = False
+        title = task.title
+        await session.commit()
+    await callback.message.edit_text(t("task.rollover_disabled", lang, title=title))
+
+
+@router.callback_query(F.data.startswith("task:toggle_rollover:"))
+async def toggle_task_rollover(callback: CallbackQuery, state: FSMContext) -> None:
+    """Toggle auto-rollover from the task management menu."""
+    await callback.answer()
+    task_id = int(callback.data.split(":")[2])
+    async with get_db() as session:
+        user = await _get_user(callback.from_user.id, session)
+        if user is None:
+            await callback.message.edit_text(t("common.user_not_found", "ru"))
+            return
+        lang = normalize_lang(user.language)
+        task = await session.get(Task, task_id)
+        if task is None or task.user_id != user.id:
+            await callback.answer(t("checkin.task_not_found", lang), show_alert=True)
+            return
+        task.auto_rollover = not bool(getattr(task, "auto_rollover", False))
+        enabled = bool(task.auto_rollover)
+        has_habit = task.habit_id is not None
+        is_modified = False
+        if has_habit:
+            habit = await session.get(Habit, task.habit_id)
+            if habit is not None:
+                is_modified = (
+                    task.start_time != habit.start_time
+                    or task.end_time != habit.end_time
+                )
+        is_completed = bool(task.is_completed)
+        await session.commit()
+
+    toast = t(
+        "task.rollover_toggled_on" if enabled else "task.rollover_toggled_off",
+        lang,
+    )
+    await callback.answer(toast)
+    await callback.message.edit_reply_markup(
+        reply_markup=get_task_action_keyboard(
+            task_id=task_id,
+            is_completed=is_completed,
+            has_habit=has_habit,
+            is_modified=is_modified,
+            auto_rollover=enabled,
+            lang=lang,
+        ),
     )

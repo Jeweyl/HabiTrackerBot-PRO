@@ -18,11 +18,10 @@ from src.handlers.tasks import router as tasks_router
 from src.middlewares.activity import UserActivityMiddleware
 from src.services.checkin_service import process_checkins
 from src.services.reminder_service import process_reminders
-
+from src.services.rollover_service import process_rollovers
 
 
 logger = logging.getLogger(__name__)
-
 
 
 def _setup_logging() -> None:
@@ -34,10 +33,15 @@ def _setup_logging() -> None:
 
 
 async def _reminder_loop(stop_event: asyncio.Event) -> None:
-    """Periodically send due reminders and check-ins until *stop_event* is set."""
+    """Periodically send due reminders/check-ins and roll over tasks."""
     poll_seconds = settings.REMINDER_POLL_SECONDS
     logger.info("Reminder/check-in loop started (interval=%ss)", poll_seconds)
     while not stop_event.is_set():
+        try:
+            await process_rollovers()
+        except Exception:
+            logger.exception("Rollover loop iteration failed")
+
         try:
             await process_reminders(bot)
         except Exception:
@@ -52,8 +56,6 @@ async def _reminder_loop(stop_event: asyncio.Event) -> None:
             await asyncio.wait_for(stop_event.wait(), timeout=poll_seconds)
         except asyncio.TimeoutError:
             continue
-
-
 
 
 async def main() -> None:
@@ -82,8 +84,6 @@ async def main() -> None:
     dp.include_router(ai_assistant_router)  # Must be before common_router for priority
     dp.include_router(ai_task_assistant_router)  # B4 task AI; after tasks for SkipHandler force_add
     dp.include_router(common_router)
-
-
 
     logger.info("Starting bot polling...")
     stop_event = asyncio.Event()

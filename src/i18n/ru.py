@@ -95,6 +95,7 @@ STRINGS: dict[str, str] = {
     "common.cancelled": "❌ Действие отменено.",
     "common.error": "⚠️ Произошла ошибка. Попробуйте ещё раз.",
     "common.off": "выкл",
+    "common.on": "вкл",
     "common.minutes": "{n} мин",
     # --- settings ---
     "settings.title": "⚙️ Настройки",
@@ -104,13 +105,17 @@ STRINGS: dict[str, str] = {
         "🌐 Язык: <b>{language}</b>\n"
         "🕐 Часовой пояс: <b>{timezone}</b>\n"
         "⏰ Уведомление: <b>{reminder}</b>\n"
-        "⏱ Интервал проверки: <b>{interval}</b>\n\n"
+        "⏱ Интервал проверки: <b>{interval}</b>\n"
+        "🔕 Без спама check-in: <b>{no_spam}</b>\n"
+        "📅 Спрашивать про перенос: <b>{ask_rollover}</b>\n\n"
         "Выберите параметр для изменения:"
     ),
     "settings.btn_language": "🌐 Язык",
     "settings.btn_timezone": "🕐 Часовой пояс",
     "settings.btn_reminder": "⏰ Время уведомления",
     "settings.btn_interval": "⏱ Интервал проверки",
+    "settings.btn_no_spam": "🔕 Без спама check-in: {state}",
+    "settings.btn_ask_rollover": "📅 Спрашивать про перенос: {state}",
     "settings.choose_language": "🌐 Выберите язык:",
     "settings.choose_timezone": "🕐 Выберите часовой пояс:",
     "settings.choose_reminder": "⏰ Выберите время ежедневного уведомления:",
@@ -120,8 +125,31 @@ STRINGS: dict[str, str] = {
     "settings.reminder_set": "⏰ Время уведомления установлено на {time}.",
     "settings.reminder_off": "🔕 Уведомления отключены.",
     "settings.interval_set": "⏱ Интервал проверки установлен на {n} мин.",
+    "settings.no_spam_on": "✅ Без спама check-in: включено.",
+    "settings.no_spam_off": "✅ Без спама check-in: выключено.",
+    "settings.ask_rollover_on": "✅ Спрашивать про перенос: включено.",
+    "settings.ask_rollover_off": "✅ Спрашивать про перенос: выключено.",
     "settings.reminder_disable": "🔕 Отключить",
     "settings.interval_option": "{n} мин",
+    # --- task extras ---
+    "task.add_today": "➕ Добавить задачу",
+    "task.no_time": "⏳ Без времени",
+    "task.untimed": "без времени",
+    "task.open_ended": "без окончания",
+    "task.created_ok": "✅ Задача «{title}» успешно создана на {date}!",
+    "task.ask_rollover": (
+        "📅 Переносить задачу «{title}» на следующий день, "
+        "если она не будет выполнена?"
+    ),
+    "task.rollover_yes": "✅ Да, переносить",
+    "task.rollover_no": "❌ Нет",
+    "task.rollover_enabled": "✅ Автоперенос включён для «{title}».",
+    "task.rollover_disabled": "ℹ️ Автоперенос выключен для «{title}».",
+    "task.btn_rollover_on": "📅 Автоперенос: вкл",
+    "task.btn_rollover_off": "📅 Автоперенос: выкл",
+    "task.rollover_toggled_on": "✅ Автоперенос включён.",
+    "task.rollover_toggled_off": "ℹ️ Автоперенос выключен.",
+
     # --- reminder ---
     "reminder.text": (
         "⏰ Напоминание\n"

@@ -93,6 +93,7 @@ STRINGS: dict[str, str] = {
     "common.cancelled": "❌ Action cancelled.",
     "common.error": "⚠️ Something went wrong. Please try again.",
     "common.off": "off",
+    "common.on": "on",
     "common.minutes": "{n} min",
     # --- settings ---
     "settings.title": "⚙️ Settings",
@@ -102,13 +103,17 @@ STRINGS: dict[str, str] = {
         "🌐 Language: <b>{language}</b>\n"
         "🕐 Timezone: <b>{timezone}</b>\n"
         "⏰ Reminder: <b>{reminder}</b>\n"
-        "⏱ Check interval: <b>{interval}</b>\n\n"
+        "⏱ Check interval: <b>{interval}</b>\n"
+        "🔕 No check-in spam: <b>{no_spam}</b>\n"
+        "📅 Ask about rollover: <b>{ask_rollover}</b>\n\n"
         "Choose a setting to change:"
     ),
     "settings.btn_language": "🌐 Language",
     "settings.btn_timezone": "🕐 Timezone",
     "settings.btn_reminder": "⏰ Reminder time",
     "settings.btn_interval": "⏱ Check interval",
+    "settings.btn_no_spam": "🔕 No check-in spam: {state}",
+    "settings.btn_ask_rollover": "📅 Ask about rollover: {state}",
     "settings.choose_language": "🌐 Choose language:",
     "settings.choose_timezone": "🕐 Choose timezone:",
     "settings.choose_reminder": "⏰ Choose daily reminder time:",
@@ -118,8 +123,31 @@ STRINGS: dict[str, str] = {
     "settings.reminder_set": "⏰ Reminder time set to {time}.",
     "settings.reminder_off": "🔕 Reminders disabled.",
     "settings.interval_set": "⏱ Check interval set to {n} min.",
+    "settings.no_spam_on": "✅ No check-in spam: on.",
+    "settings.no_spam_off": "✅ No check-in spam: off.",
+    "settings.ask_rollover_on": "✅ Ask about rollover: on.",
+    "settings.ask_rollover_off": "✅ Ask about rollover: off.",
     "settings.reminder_disable": "🔕 Disable",
     "settings.interval_option": "{n} min",
+    # --- task extras ---
+    "task.add_today": "➕ Add task",
+    "task.no_time": "⏳ No time",
+    "task.untimed": "no time",
+    "task.open_ended": "open-ended",
+    "task.created_ok": "✅ Task «{title}» created for {date}!",
+    "task.ask_rollover": (
+        "📅 Roll over task «{title}» to the next day "
+        "if it is not completed?"
+    ),
+    "task.rollover_yes": "✅ Yes, roll over",
+    "task.rollover_no": "❌ No",
+    "task.rollover_enabled": "✅ Auto-rollover enabled for «{title}».",
+    "task.rollover_disabled": "ℹ️ Auto-rollover disabled for «{title}».",
+    "task.btn_rollover_on": "📅 Auto-rollover: on",
+    "task.btn_rollover_off": "📅 Auto-rollover: off",
+    "task.rollover_toggled_on": "✅ Auto-rollover enabled.",
+    "task.rollover_toggled_off": "ℹ️ Auto-rollover disabled.",
+
     # --- reminder ---
     "reminder.text": (
         "⏰ Reminder\n"
