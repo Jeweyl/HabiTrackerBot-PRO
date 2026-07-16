@@ -20,5 +20,5 @@ postgres_data/
 ale
 web/node_modules/
 web/dist/
-
+.git_disabled
 
