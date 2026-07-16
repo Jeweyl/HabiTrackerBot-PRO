@@ -11,10 +11,12 @@ from src.services.ai_schema import (
     ControlCompleteTask,
     ControlCreateTask,
     ControlDeleteTask,
+    ControlListTasks,
     ControlMessage,
     ControlOpenMenu,
     parse_control_response,
 )
+
 from src.services.ai_service import send_to_ai
 
 logger = logging.getLogger(__name__)
@@ -105,9 +107,11 @@ def build_control_prompt(
 
     force_line = (
         "CRITICAL: You MUST return an action now (create_task, delete_task, "
-        "complete_task, open_menu, or message). Do NOT return ask_questions. "
+        "complete_task, list_tasks, open_menu, or message). "
+        "Do NOT return ask_questions. "
         "Use reasonable defaults for missing details.\n"
         if force_action
+
         else (
             f"You may ask clarifying questions in at most {rounds_left} more "
             f"round(s) (max {MAX_CONTROL_CLARIFY_ROUNDS} total). "
@@ -151,17 +155,27 @@ def build_control_prompt(
         "4) Complete task:\n"
         '{"type":"complete_task","query":"title fragment"|null,'
         '"date":"YYYY-MM-DD"|null,"task_id":integer|null}\n'
-        "5) Open existing menu (no DB write):\n"
+        "5) List / show tasks for a day (preferred for «какие задачи…»):\n"
+        '{"type":"list_tasks","date":"YYYY-MM-DD"|null}\n'
+        "6) Open existing menu (no DB write):\n"
         '{"type":"open_menu","target":"new_habit_choice"|"new_habit_manual"|'
-        '"new_habit_ai"|"new_task"|"new_task_ai"|"today"|"schedule"|'
+        '"new_habit_ai"|"new_task"|"new_task_ai"|"today"|"tomorrow"|"schedule"|'
         '"habits"|"settings"|"stats"|"help"}\n'
-        "6) Plain reply (no side effects):\n"
+        "7) Plain reply (no side effects):\n"
         '{"type":"message","text":"..."}\n'
         "Rules:\n"
         "- Synonyms: add/put/schedule/remind ≈ create_task; "
         "delete/remove/cancel ≈ delete_task; done/complete/finish ≈ complete_task; "
         "create habit / new habit ≈ open_menu new_habit_choice "
         "(do NOT invent habit fields).\n"
+        "- «Какие задачи / что на сегодня / расписание на завтра / show my tasks» "
+        "→ list_tasks (NOT open_menu schedule calendar). "
+        "date=null or local today for «сегодня/today»; "
+        "date=local tomorrow ISO for «завтра/tomorrow»; "
+        "other relative days → compute ISO from local_now_date.\n"
+        "- open_menu target=schedule ONLY when user wants the calendar picker "
+        "to choose a date, not when they already named a day.\n"
+        "- open_menu today/tomorrow is OK as alias of list_tasks for that day.\n"
         "- «Напомни / remind me in N minutes» → create_task with "
         "relative_minutes=N (task triggers check-in at that time).\n"
         "- relative_minutes: minutes from local_now; do not invent absolute "
@@ -171,9 +185,10 @@ def build_control_prompt(
         "- date null → local today. Times HH:MM minutes in {00,15,30,45} when set.\n"
         "- For delete/complete: set query from user wording; use task_id only if "
         "it appears in tasks_today context.\n"
-        "- Prefer open_menu for navigation requests (today, settings, habits…).\n"
+        "- Prefer open_menu for navigation (settings, habits, help…).\n"
         "- Do not invent fields outside this schema. Do not claim already saved."
     )
+
 
 
 async def send_control_to_ai(
@@ -184,10 +199,12 @@ async def send_control_to_ai(
     | ControlCreateTask
     | ControlDeleteTask
     | ControlCompleteTask
+    | ControlListTasks
     | ControlOpenMenu
     | ControlMessage
     | None
 ):
+
     """Call OpenRouter and parse a control intent. Returns ``None`` on failure."""
     raw = await send_to_ai(prompt, model=model)
     return parse_control_response(raw)

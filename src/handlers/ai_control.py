@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from aiogram import F, Router
@@ -48,10 +48,12 @@ from src.services.ai_schema import (
     ControlCompleteTask,
     ControlCreateTask,
     ControlDeleteTask,
+    ControlListTasks,
     ControlMessage,
     ControlOpenMenu,
     normalize_question,
 )
+
 from src.states.fsm import (
     AIAssistantFSM,
     AIControlFSM,
@@ -250,6 +252,90 @@ def _format_question_text(q: dict[str, Any], context: str | None, lang: str) -> 
 # ---------------------------------------------------------------------------
 
 
+async def _show_day_schedule(
+    event: Message | CallbackQuery,
+    state: FSMContext,
+    schedule_date: date,
+    *,
+    placeholder: Message | None = None,
+) -> None:
+    """Show tasks for *schedule_date*.
+
+    Free-text entry cannot ``edit_text`` the user's message, so we always
+    send a **new** bot message (``edit=False``). Optional waiting
+    *placeholder* is deleted first.
+    """
+    from src.handlers.tasks import _show_schedule
+
+    if placeholder is not None:
+        try:
+            await placeholder.delete()
+        except Exception:
+            pass
+
+    if isinstance(event, CallbackQuery):
+        try:
+            await event.answer()
+        except Exception:
+            pass
+        # Prefer answering a new message so we never fail editing a stale UI.
+        target_msg = event.message
+    else:
+        target_msg = event
+
+    try:
+        await _show_schedule(
+            telegram_id=event.from_user.id,
+            target=target_msg,
+            schedule_date=schedule_date,
+            state=state,
+            edit=False,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to show schedule for %s telegram_id=%s",
+            schedule_date,
+            event.from_user.id,
+        )
+        lang = await _get_user_lang(event.from_user.id)
+        await _reply(
+            event,
+            t("control.unavailable", lang),
+            reply_markup=get_main_menu_keyboard(lang),
+        )
+        await state.set_state(MainFSM.main_menu)
+
+
+async def _handle_list_tasks(
+    event: Message | CallbackQuery,
+    state: FSMContext,
+    intent: ControlListTasks | dict[str, Any],
+    lang: str,
+    *,
+    placeholder: Message | None = None,
+) -> None:
+    """Resolve date for list_tasks and show the day schedule."""
+    if hasattr(intent, "model_dump"):
+        data = intent.model_dump()  # type: ignore[union-attr]
+    else:
+        data = dict(intent)
+
+    ctx = await _load_control_context(event.from_user.id)
+    local_dt: datetime = ctx.get("local_now") or datetime.now()
+    day = local_dt.date()
+
+    raw_date = data.get("date")
+    if isinstance(raw_date, str) and raw_date.strip():
+        try:
+            day = date.fromisoformat(raw_date.strip())
+        except ValueError:
+            day = local_dt.date()
+
+    await _show_day_schedule(
+        event, state, day, placeholder=placeholder
+    )
+
+
 async def _handle_open_menu(
     event: Message | CallbackQuery,
     state: FSMContext,
@@ -260,6 +346,7 @@ async def _handle_open_menu(
 ) -> None:
     """Navigate to an existing menu / wizard entry."""
     if target == "new_habit_choice":
+
         await state.set_state(MainFSM.main_menu)
         await _reply(
             event,
@@ -308,35 +395,21 @@ async def _handle_open_menu(
         )
         return
     if target == "today":
-        # Reuse schedule view via tasks helper
-        from src.handlers.tasks import _show_schedule
-
-        await state.clear()
-        if placeholder is not None:
-            try:
-                await placeholder.delete()
-            except Exception:
-                pass
-        target_msg = event.message if isinstance(event, CallbackQuery) else event
-        if isinstance(event, CallbackQuery):
-            try:
-                await event.answer()
-            except Exception:
-                pass
-        today = date.today()
-        try:
-            ctx = await _load_control_context(event.from_user.id)
-            today = ctx["local_now"].date()
-        except Exception:
-            pass
-        await _show_schedule(
-            telegram_id=event.from_user.id,
-            target=target_msg,
-            schedule_date=today,
-            state=state,
+        ctx = await _load_control_context(event.from_user.id)
+        day = ctx["local_now"].date()
+        await _show_day_schedule(
+            event, state, day, placeholder=placeholder
+        )
+        return
+    if target == "tomorrow":
+        ctx = await _load_control_context(event.from_user.id)
+        day = ctx["local_now"].date() + timedelta(days=1)
+        await _show_day_schedule(
+            event, state, day, placeholder=placeholder
         )
         return
     if target == "schedule":
+
         await state.update_data(view_mode=True)
         await state.set_state(NewTaskFSM.select_date)
         today = date.today()
@@ -677,11 +750,18 @@ async def _dispatch_intent(
         )
         return
 
+    if isinstance(intent, ControlListTasks):
+        await _handle_list_tasks(
+            event, state, intent, lang, placeholder=placeholder
+        )
+        return
+
     if isinstance(intent, ControlOpenMenu):
         await _handle_open_menu(
             event, state, intent.target, lang, placeholder=placeholder
         )
         return
+
 
     if isinstance(intent, ControlMessage):
         await state.clear()

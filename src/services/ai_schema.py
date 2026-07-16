@@ -442,6 +442,7 @@ ControlMenuTarget = Literal[
     "new_task",
     "new_task_ai",
     "today",
+    "tomorrow",
     "schedule",
     "habits",
     "settings",
@@ -449,6 +450,39 @@ ControlMenuTarget = Literal[
     "help",
 ]
 """Allowed navigation targets for open_menu."""
+
+
+class ControlListTasks(BaseModel):
+    """Show the user's task list for a given local date (read-only view).
+
+    Attributes:
+        type: Discriminator; always ``list_tasks``.
+        date: Optional ISO date ``YYYY-MM-DD``; handlers default to local today.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["list_tasks"] = "list_tasks"
+    date: str | None = None
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("date must be a string in YYYY-MM-DD format")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid date format (expected YYYY-MM-DD): {value!r}"
+            ) from exc
+        return cleaned
+
 
 
 class ControlCreateTask(BaseModel):
@@ -662,12 +696,14 @@ ControlResponse = Annotated[
         ControlCreateTask,
         ControlDeleteTask,
         ControlCompleteTask,
+        ControlListTasks,
         ControlOpenMenu,
         ControlMessage,
     ],
     Field(discriminator="type"),
 ]
 """Discriminated union of free-form control AI response shapes."""
+
 
 
 def _coerce_json_payload(raw: str | dict[str, Any] | None) -> dict[str, Any] | None:
@@ -768,6 +804,7 @@ def parse_control_response(
     | ControlCreateTask
     | ControlDeleteTask
     | ControlCompleteTask
+    | ControlListTasks
     | ControlOpenMenu
     | ControlMessage
     | None
@@ -790,6 +827,8 @@ def parse_control_response(
             return ControlDeleteTask.model_validate(data)
         if response_type == "complete_task":
             return ControlCompleteTask.model_validate(data)
+        if response_type == "list_tasks":
+            return ControlListTasks.model_validate(data)
         if response_type == "open_menu":
             return ControlOpenMenu.model_validate(data)
         if response_type == "message":
@@ -809,5 +848,6 @@ def parse_control_response(
             exc_info=True,
         )
         return None
+
 
 

@@ -21,10 +21,12 @@ from src.services.ai_schema import (
     ControlCompleteTask,
     ControlCreateTask,
     ControlDeleteTask,
+    ControlListTasks,
     ControlMessage,
     ControlOpenMenu,
     parse_control_response,
 )
+
 
 
 # ---------------------------------------------------------------------------
@@ -90,10 +92,29 @@ def test_parse_open_menu_and_message() -> None:
     assert isinstance(o, ControlOpenMenu)
     assert o.target == "new_habit_choice"
 
+    o2 = parse_control_response(
+        {"type": "open_menu", "target": "tomorrow"}
+    )
+    assert isinstance(o2, ControlOpenMenu)
+    assert o2.target == "tomorrow"
+
     msg = parse_control_response(
         {"type": "message", "text": "Не понял запрос"}
     )
     assert isinstance(msg, ControlMessage)
+
+
+def test_parse_list_tasks() -> None:
+    m = parse_control_response({"type": "list_tasks", "date": None})
+    assert isinstance(m, ControlListTasks)
+    assert m.date is None
+
+    m2 = parse_control_response(
+        {"type": "list_tasks", "date": "2026-07-17"}
+    )
+    assert isinstance(m2, ControlListTasks)
+    assert m2.date == "2026-07-17"
+
 
 
 def test_parse_ask_questions() -> None:
@@ -221,4 +242,7 @@ def test_prompt_contains_local_clock_and_user_text() -> None:
     assert "Удали задачу прыжки" in prompt
     assert "create_task" in prompt
     assert "delete_task" in prompt
+    assert "list_tasks" in prompt
     assert "NEVER ask what day/time" in prompt
+
+
