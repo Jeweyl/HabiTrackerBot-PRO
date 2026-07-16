@@ -240,6 +240,41 @@ STRINGS: dict[str, str] = {
     "task_ai.skip": "⏭ Skip",
     "task_ai.yes": "✅ Yes",
     "task_ai.no": "❌ No",
+    # --- free-form AI control ---
+    "control.waiting": "⏳ On it… This may take up to 30 seconds.",
+    "control.unavailable": (
+        "🤖 Could not understand the request. "
+        "Try again or use the menu."
+    ),
+    "control.created": (
+        "✅ Task created:\n"
+        "<b>{title}</b>\n"
+        "Date: {date}\n"
+        "Time: {time}"
+    ),
+    "control.deleted": "🗑 Deleted: <b>{title}</b>",
+    "control.completed": "✅ Marked done: <b>{title}</b>",
+    "control.not_found": "No matching task found. Clarify the title or date.",
+    "control.ambiguous": "Several tasks match. Pick one:",
+    "control.confirm_delete": "Delete task «{title}» ({time})?",
+    "control.confirm_complete": "Mark «{title}» ({time}) as done?",
+    "control.conflict": (
+        "⚠️ Time slot busy for «{title}» ({date}, {time}).\n"
+        "Add anyway?"
+    ),
+    "control.force_add": "⚠️ Add anyway",
+    "control.cancelled": "Cancelled.",
+    "control.clarify_fallback": "Please clarify.",
+    "control.clarify_text_hint": "(type an answer or tap Skip)",
+    "control.clarify_time_hint": "(pick a time in 15-minute steps)",
+    "control.skip": "⏭ Skip",
+    "control.yes": "✅ Yes",
+    "control.no": "❌ No",
+    "control.open_habit_choice": "How do you want to create a habit?",
+    "control.open_task_choice": "How do you want to add a task?",
+    "control.untimed": "no time",
+    "control.hint_menu": "You can type freely, e.g. “add a task at 3pm…”.",
 }
+
 
 

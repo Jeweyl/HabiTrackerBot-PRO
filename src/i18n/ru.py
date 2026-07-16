@@ -242,6 +242,41 @@ STRINGS: dict[str, str] = {
     "task_ai.skip": "⏭ Пропустить",
     "task_ai.yes": "✅ Да",
     "task_ai.no": "❌ Нет",
+    # --- free-form AI control ---
+    "control.waiting": "⏳ Понял, выполняю… Это может занять до 30 секунд.",
+    "control.unavailable": (
+        "🤖 Не удалось разобрать запрос. "
+        "Попробуйте ещё раз или воспользуйтесь меню."
+    ),
+    "control.created": (
+        "✅ Задача создана:\n"
+        "<b>{title}</b>\n"
+        "Дата: {date}\n"
+        "Время: {time}"
+    ),
+    "control.deleted": "🗑 Удалено: <b>{title}</b>",
+    "control.completed": "✅ Отмечено выполненным: <b>{title}</b>",
+    "control.not_found": "Не нашёл подходящую задачу. Уточните название или дату.",
+    "control.ambiguous": "Нашёл несколько задач. Выберите нужную:",
+    "control.confirm_delete": "Удалить задачу «{title}» ({time})?",
+    "control.confirm_complete": "Отметить «{title}» ({time}) как выполненную?",
+    "control.conflict": (
+        "⚠️ Время занято для «{title}» ({date}, {time}).\n"
+        "Добавить всё равно?"
+    ),
+    "control.force_add": "⚠️ Всё равно добавить",
+    "control.cancelled": "Отменено.",
+    "control.clarify_fallback": "Уточните, пожалуйста.",
+    "control.clarify_text_hint": "(напишите ответ или нажмите Пропустить)",
+    "control.clarify_time_hint": "(выберите время с шагом 15 минут)",
+    "control.skip": "⏭ Пропустить",
+    "control.yes": "✅ Да",
+    "control.no": "❌ Нет",
+    "control.open_habit_choice": "Как создать привычку?",
+    "control.open_task_choice": "Как добавить задачу?",
+    "control.untimed": "без времени",
+    "control.hint_menu": "Можно писать свободным текстом, например: «добавь задачу на 15:00…».",
 }
+
 
 

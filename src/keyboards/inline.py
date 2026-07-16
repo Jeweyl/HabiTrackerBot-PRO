@@ -1358,4 +1358,85 @@ def get_checkin_reschedule_keyboard(
     return finalize_markup(builder)
 
 
+# ---------------------------------------------------------------------------
+# Free-form AI control keyboards (ctrl: namespace)
+# ---------------------------------------------------------------------------
+
+
+def get_control_choice_keyboard(
+    options: list[str],
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    """Choice buttons for control clarifying questions (``ctrl:choice:{i}``)."""
+    builder = InlineKeyboardBuilder()
+    for i, label in enumerate(options):
+        text = (label or "").strip() or f"Option {i + 1}"
+        builder.button(text=text[:64], callback_data=f"ctrl:choice:{i}")
+    builder.button(text=t("control.skip", lang), callback_data="ctrl:skip")
+    builder.button(text=t("common.back", lang), callback_data="nav:cancel")
+    builder.button(text=t("common.cancel", lang), callback_data="nav:cancel")
+    rows = [1] * max(len(options), 0) + [1, 2]
+    builder.adjust(*rows)
+    return finalize_markup(builder)
+
+
+def get_control_skip_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    """Skip / cancel for free-text control clarifying questions."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("control.skip", lang), callback_data="ctrl:skip")
+    builder.button(text=t("common.cancel", lang), callback_data="nav:cancel")
+    builder.adjust(1, 1)
+    return finalize_markup(builder)
+
+
+def get_control_confirm_keyboard(
+    *,
+    action: str,
+    task_id: int,
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    """Yes/No confirm for delete/complete (``ctrl:yes:{action}:{id}``)."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=t("control.yes", lang),
+        callback_data=f"ctrl:yes:{action}:{task_id}",
+    )
+    builder.button(text=t("control.no", lang), callback_data="ctrl:no")
+    builder.button(text=t("common.cancel", lang), callback_data="nav:cancel")
+    builder.adjust(2, 1)
+    return finalize_markup(builder)
+
+
+def get_control_pick_task_keyboard(
+    items: list[tuple[int, str]],
+    *,
+    action: str,
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    """Pick among ambiguous tasks (``ctrl:pick:{action}:{task_id}``)."""
+    builder = InlineKeyboardBuilder()
+    for task_id, label in items:
+        builder.button(
+            text=(label or str(task_id))[:64],
+            callback_data=f"ctrl:pick:{action}:{task_id}",
+        )
+    builder.button(text=t("common.cancel", lang), callback_data="nav:cancel")
+    rows = [1] * len(items) + [1]
+    builder.adjust(*rows)
+    return finalize_markup(builder)
+
+
+def get_control_conflict_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    """Force-add vs cancel when control create hits a time conflict."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=t("control.force_add", lang),
+        callback_data="ctrl:force_add",
+    )
+    builder.button(text=t("common.cancel", lang), callback_data="nav:cancel")
+    builder.adjust(1, 1)
+    return finalize_markup(builder)
+
+
+
 

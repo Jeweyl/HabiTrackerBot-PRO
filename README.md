@@ -39,10 +39,14 @@ Points economy and gates: [docs/FREEMIUM.md](docs/FREEMIUM.md). Implementation o
 ### Habits & tasks
 
 - AI multi-turn wizard (SMART) and manual FSM wizards
+- **Free-form AI control** — type natural language from the main menu
+  (create/delete/complete tasks, relative “in 20 minutes”, open habit wizard)
 - Daily / weekdays / weekends recurrence
 - Lazy task generation from habit templates
 - 15-minute time grid; conflict checks for tasks and habits
-- Check-in prompts with `check_interval` anti-spam
+- Untimed tasks (`start_time` null) and per-task auto-rollover
+- Check-in prompts with `check_interval` anti-spam / optional no-spam mode
+
 
 ### Statistics & web
 
@@ -53,8 +57,10 @@ Points economy and gates: [docs/FREEMIUM.md](docs/FREEMIUM.md). Implementation o
 ### Settings
 
 - RU / EN i18n, timezone, notification time, check interval
+- Check-in no-spam toggle; ask about auto-rollover after create
 
 ---
+
 
 ## Stack
 

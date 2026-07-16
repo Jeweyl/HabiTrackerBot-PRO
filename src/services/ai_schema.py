@@ -430,27 +430,248 @@ class ProposeTaskPlan(BaseModel):
         return self
 
 
+# ---------------------------------------------------------------------------
+# Free-form AI Control intents (natural language → actions)
+# ---------------------------------------------------------------------------
+
+
+ControlMenuTarget = Literal[
+    "new_habit_choice",
+    "new_habit_manual",
+    "new_habit_ai",
+    "new_task",
+    "new_task_ai",
+    "today",
+    "schedule",
+    "habits",
+    "settings",
+    "stats",
+    "help",
+]
+"""Allowed navigation targets for open_menu."""
+
+
+class ControlCreateTask(BaseModel):
+    """Create a one-off task from free-form control.
+
+    Attributes:
+        type: Discriminator; always ``create_task``.
+        title: Task title (1–200 characters).
+        date: Optional ISO date; handlers default to local today.
+        start_time: Optional ``HH:MM``; ``None`` = untimed todo.
+        end_time: Optional end ``HH:MM``; ``None`` = open-ended.
+        relative_minutes: If set, start = local_now + N (snapped to 15-min grid).
+        auto_rollover: Whether incomplete tasks roll to the next day.
+        comment: Optional coach note (not stored on Task).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["create_task"] = "create_task"
+    title: str = Field(min_length=1, max_length=200)
+    date: str | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+    relative_minutes: int | None = None
+    auto_rollover: bool = False
+    comment: str = ""
+
+    @field_validator("title")
+    @classmethod
+    def _strip_title(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("title must not be empty")
+        return cleaned
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("date must be a string in YYYY-MM-DD format")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid date format (expected YYYY-MM-DD): {value!r}"
+            ) from exc
+        return cleaned
+
+    @field_validator("start_time")
+    @classmethod
+    def _validate_start_time(cls, value: str | None) -> str | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("end_time")
+    @classmethod
+    def _validate_end_time(cls, value: str | None) -> str | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("relative_minutes")
+    @classmethod
+    def _validate_relative(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("relative_minutes must be an integer")
+        if value <= 0:
+            raise ValueError("relative_minutes must be positive")
+        if value > 7 * 24 * 60:
+            raise ValueError("relative_minutes too large")
+        return value
+
+
+class ControlDeleteTask(BaseModel):
+    """Delete a task matched by query / id / date."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["delete_task"] = "delete_task"
+    query: str | None = None
+    date: str | None = None
+    task_id: int | None = None
+
+    @field_validator("query")
+    @classmethod
+    def _strip_query(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("date must be a string in YYYY-MM-DD format")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid date format (expected YYYY-MM-DD): {value!r}"
+            ) from exc
+        return cleaned
+
+    @field_validator("task_id")
+    @classmethod
+    def _validate_task_id(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError("task_id must be a positive integer")
+        return value
+
+
+class ControlCompleteTask(BaseModel):
+    """Mark a task completed, matched by query / id / date."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["complete_task"] = "complete_task"
+    query: str | None = None
+    date: str | None = None
+    task_id: int | None = None
+
+    @field_validator("query")
+    @classmethod
+    def _strip_query(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("date must be a string in YYYY-MM-DD format")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid date format (expected YYYY-MM-DD): {value!r}"
+            ) from exc
+        return cleaned
+
+    @field_validator("task_id")
+    @classmethod
+    def _validate_task_id(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError("task_id must be a positive integer")
+        return value
+
+
+class ControlOpenMenu(BaseModel):
+    """Navigate to an existing bot menu / wizard entry (no DB write)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["open_menu"] = "open_menu"
+    target: ControlMenuTarget
+
+
+class ControlMessage(BaseModel):
+    """Plain reply without side effects (fallback / out of scope)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["message"] = "message"
+    text: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("text")
+    @classmethod
+    def _strip_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("text must not be empty")
+        return cleaned
+
+
 AIResponse = Annotated[
     Union[AskQuestions, ProposePlan, ProposeTaskPlan],
     Field(discriminator="type"),
 ]
-"""Discriminated union of supported AI response shapes."""
+"""Discriminated union of wizard AI response shapes."""
+
+ControlResponse = Annotated[
+    Union[
+        AskQuestions,
+        ControlCreateTask,
+        ControlDeleteTask,
+        ControlCompleteTask,
+        ControlOpenMenu,
+        ControlMessage,
+    ],
+    Field(discriminator="type"),
+]
+"""Discriminated union of free-form control AI response shapes."""
 
 
-def parse_ai_response(
-    raw: str | dict[str, Any] | None,
-) -> AskQuestions | ProposePlan | ProposeTaskPlan | None:
-    """Parse and validate a raw AI payload into a typed response.
-
-    Never raises for untrusted input. Returns ``None`` on any failure
-    (null/empty content, non-JSON, schema/validation errors).
-
-    Args:
-        raw: Raw model content string, already-parsed dict, or ``None``.
-
-    Returns:
-        Validated ``AskQuestions`` or ``ProposePlan``, or ``None``.
-    """
+def _coerce_json_payload(raw: str | dict[str, Any] | None) -> dict[str, Any] | None:
+    """Parse raw model content into a dict, or return ``None``."""
     if raw is None:
         logger.warning("parse_ai_response: raw is None")
         return None
@@ -464,7 +685,6 @@ def parse_ai_response(
         # Tolerate optional markdown fences from chatty models
         if text.startswith("```"):
             lines = text.splitlines()
-            # drop first fence line and optional trailing fence
             if lines and lines[0].startswith("```"):
                 lines = lines[1:]
             if lines and lines[-1].strip() == "```":
@@ -494,9 +714,29 @@ def parse_ai_response(
             type(data).__name__,
         )
         return None
+    return data
+
+
+def parse_ai_response(
+    raw: str | dict[str, Any] | None,
+) -> AskQuestions | ProposePlan | ProposeTaskPlan | None:
+    """Parse and validate a raw AI payload into a typed wizard response.
+
+    Never raises for untrusted input. Returns ``None`` on any failure
+    (null/empty content, non-JSON, schema/validation errors).
+
+    Args:
+        raw: Raw model content string, already-parsed dict, or ``None``.
+
+    Returns:
+        Validated ``AskQuestions``, ``ProposePlan``, or ``ProposeTaskPlan``,
+        or ``None``.
+    """
+    data = _coerce_json_payload(raw)
+    if data is None:
+        return None
 
     try:
-        # Pydantic v2 discriminated union via TypeAdapter-like validate
         response_type = data.get("type")
         if response_type == "ask_questions":
             return AskQuestions.model_validate(data)
@@ -519,3 +759,55 @@ def parse_ai_response(
             exc_info=True,
         )
         return None
+
+
+def parse_control_response(
+    raw: str | dict[str, Any] | None,
+) -> (
+    AskQuestions
+    | ControlCreateTask
+    | ControlDeleteTask
+    | ControlCompleteTask
+    | ControlOpenMenu
+    | ControlMessage
+    | None
+):
+    """Parse free-form control AI JSON into a typed intent.
+
+    Never raises for untrusted input. Returns ``None`` on failure.
+    """
+    data = _coerce_json_payload(raw)
+    if data is None:
+        return None
+
+    try:
+        response_type = data.get("type")
+        if response_type == "ask_questions":
+            return AskQuestions.model_validate(data)
+        if response_type == "create_task":
+            return ControlCreateTask.model_validate(data)
+        if response_type == "delete_task":
+            return ControlDeleteTask.model_validate(data)
+        if response_type == "complete_task":
+            return ControlCompleteTask.model_validate(data)
+        if response_type == "open_menu":
+            return ControlOpenMenu.model_validate(data)
+        if response_type == "message":
+            return ControlMessage.model_validate(data)
+        logger.warning(
+            "parse_control_response: missing or unknown type %r",
+            response_type,
+        )
+        return None
+    except ValidationError as exc:
+        logger.warning("parse_control_response: validation failed: %s", exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "parse_control_response: unexpected error: %s",
+            exc,
+            exc_info=True,
+        )
+        return None
+
+

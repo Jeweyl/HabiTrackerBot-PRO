@@ -136,6 +136,22 @@ class AITaskAssistantFSM(StatesGroup):
     confirm_plan = State()
 
 
+class AIControlFSM(StatesGroup):
+    """FSM for free-form natural-language AI control.
+
+    Entry is free text from main menu / idle. The model returns a control
+    intent; clarifying questions and destructive confirms use these states.
+
+    Attributes:
+        clarifying: User answers a control clarifying question (choice/time/text).
+        confirm: User confirms delete / ambiguous target selection.
+    """
+
+    clarifying = State()
+    confirm = State()
+
+
+
 
 class ConflictHabitFSM(StatesGroup):
     """FSM group for resolving habit time conflicts.
