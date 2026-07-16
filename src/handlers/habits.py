@@ -12,13 +12,13 @@ from sqlalchemy import delete, select
 
 from src.db.models import Habit, Task, User
 from src.db.session import get_db
+from src.handlers.common import main_menu_keyboard_for_telegram
 from src.keyboards.inline import (
     get_cancel_input_keyboard,
     get_delete_confirmation_keyboard,
     get_edit_field_keyboard,
     get_frequency_keyboard,
     get_habit_conflict_resolution_keyboard,
-    get_main_menu_keyboard,
     get_minute_selection_keyboard,
     get_time_selection_keyboard,
 )
@@ -37,8 +37,6 @@ from src.utils.conflict import (
 )
 from src.utils.keyboard_width import finalize_markup
 from src.utils.time_picker import PENDING_HOUR_KEY, parse_time_callback
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +70,6 @@ _HABIT_CANCEL_STATES = [
     HabitFSM.manage_single,
 ]
 
-
 async def _show_habit_list(
     *,
     telegram_id: int,
@@ -96,7 +93,7 @@ async def _show_habit_list(
     if not habits:
         await target.edit_text(
             "У вас пока нет привычек.\nСоздайте первую через ➕ Создать привычку!",
-            reply_markup=get_main_menu_keyboard(),
+            reply_markup=await main_menu_keyboard_for_telegram(telegram_id, "ru"),
         )
         await state.set_state(MainFSM.main_menu)
         return
@@ -118,8 +115,6 @@ async def _show_habit_list(
     builder.button(text="🏠 В главное меню", callback_data="nav:cancel")
     builder.adjust(2)
     await target.edit_text("\n".join(lines), reply_markup=finalize_markup(builder))
-
-
 
 def _build_habit_conflict_message(
     title: str,
@@ -156,7 +151,6 @@ def _build_habit_conflict_message(
 
     lines.append("\nВыберите действие:")
     return "\n".join(lines)
-
 
 async def _save_habit_from_fsm(
     callback: CallbackQuery,
@@ -205,14 +199,12 @@ async def _save_habit_from_fsm(
         f"📝 Название: {title}\n"
         f"⏰ Время: {time_display}\n"
         f"🔄 Периодичность: {freq_label}",
-        reply_markup=get_main_menu_keyboard(),
+        reply_markup=await main_menu_keyboard_for_telegram(telegram_id, "ru"),
     )
-
 
 # ===================================================================
 # Wizard entry point
 # ===================================================================
-
 
 @router.callback_query(F.data == "new_habit:manual")
 async def start_new_habit_manual(callback: CallbackQuery, state: FSMContext) -> None:
@@ -240,7 +232,6 @@ async def start_new_habit_manual(callback: CallbackQuery, state: FSMContext) -> 
         reply_markup=get_cancel_input_keyboard(),
     )
 
-
 @router.message(NewHabitFSM.title)
 async def process_title(message: Message, state: FSMContext) -> None:
     title = message.text.strip() if message.text else ""
@@ -255,7 +246,6 @@ async def process_title(message: Message, state: FSMContext) -> None:
     await message.answer(
         "⏰ Выберите время начала привычки:", reply_markup=get_time_selection_keyboard()
     )
-
 
 @router.callback_query(NewHabitFSM.start_time, F.data.startswith("time:"))
 async def process_start_time(callback: CallbackQuery, state: FSMContext) -> None:
@@ -287,7 +277,6 @@ async def process_start_time(callback: CallbackQuery, state: FSMContext) -> None
             min_time=start_time, show_null_option=True
         ),
     )
-
 
 @router.callback_query(NewHabitFSM.end_time, F.data.startswith("time:"))
 async def process_end_time(callback: CallbackQuery, state: FSMContext) -> None:
@@ -339,8 +328,6 @@ async def process_end_time(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.edit_text(
         "🔄 Выберите периодичность привычки:", reply_markup=get_frequency_keyboard()
     )
-
-
 
 @router.callback_query(NewHabitFSM.frequency, F.data.startswith("freq:"))
 async def process_frequency(callback: CallbackQuery, state: FSMContext) -> None:
@@ -425,14 +412,12 @@ async def process_frequency(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.answer(
         f"✅ Привычка успешно создана!\n\n"
         f"📝 Название: {title}\n⏰ Время: {time_display}\n🔄 Периодичность: {freq_label}",
-        reply_markup=get_main_menu_keyboard(),
+        reply_markup=await main_menu_keyboard_for_telegram(telegram_id, "ru"),
     )
-
 
 # ===================================================================
 # View habit list
 # ===================================================================
-
 
 @router.callback_query(F.data == "main_menu:habits")
 async def show_habits(callback: CallbackQuery, state: FSMContext) -> None:
@@ -441,11 +426,9 @@ async def show_habits(callback: CallbackQuery, state: FSMContext) -> None:
         telegram_id=callback.from_user.id, target=callback.message, state=state
     )
 
-
 # ===================================================================
 # Two-level habit navigation: interact sub-menu
 # ===================================================================
-
 
 @router.callback_query(F.data == "habits:interact")
 async def show_interact_menu(callback: CallbackQuery, state: FSMContext) -> None:
@@ -466,7 +449,7 @@ async def show_interact_menu(callback: CallbackQuery, state: FSMContext) -> None
     if not habits:
         await callback.message.edit_text(
             "У вас пока нет привычек.\nСоздайте первую через ➕ Создать привычку!",
-            reply_markup=get_main_menu_keyboard(),
+            reply_markup=await main_menu_keyboard_for_telegram(telegram_id, "ru"),
         )
         await state.clear()
         await state.set_state(MainFSM.main_menu)
@@ -496,8 +479,6 @@ async def show_interact_menu(callback: CallbackQuery, state: FSMContext) -> None
     await callback.message.edit_text(
         "\n".join(lines), reply_markup=finalize_markup(builder)
     )
-
-
 
 async def _show_manage_menu(
     callback: CallbackQuery,
@@ -545,8 +526,6 @@ async def _show_manage_menu(
         "\n".join(lines), reply_markup=finalize_markup(builder)
     )
 
-
-
 @router.callback_query(F.data.startswith("habit:select:"))
 async def show_habit_manage_menu(callback: CallbackQuery, state: FSMContext) -> None:
     """Show the manage menu for a single habit (edit / delete)."""
@@ -575,11 +554,9 @@ async def show_habit_manage_menu(callback: CallbackQuery, state: FSMContext) -> 
 
     await _show_manage_menu(callback, state, habit_id, habit.title)
 
-
 # ===================================================================
 # Edit flow — start
 # ===================================================================
-
 
 @router.callback_query(F.data.startswith("habit:edit:"))
 async def start_edit_habit(callback: CallbackQuery, state: FSMContext) -> None:
@@ -619,11 +596,9 @@ async def start_edit_habit(callback: CallbackQuery, state: FSMContext) -> None:
         reply_markup=get_edit_field_keyboard(),
     )
 
-
 # ===================================================================
 # Edit field dispatchers
 # ===================================================================
-
 
 @router.callback_query(EditHabitFSM.choose_field, F.data == "edit_field:title")
 async def edit_title_prompt(callback: CallbackQuery, state: FSMContext) -> None:
@@ -634,7 +609,6 @@ async def edit_title_prompt(callback: CallbackQuery, state: FSMContext) -> None:
         reply_markup=get_cancel_input_keyboard(),
     )
 
-
 @router.callback_query(EditHabitFSM.choose_field, F.data == "edit_field:start_time")
 async def edit_start_time_prompt(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
@@ -642,7 +616,6 @@ async def edit_start_time_prompt(callback: CallbackQuery, state: FSMContext) -> 
     await callback.message.edit_text(
         "🕐 Выберите новое время начала:", reply_markup=get_time_selection_keyboard()
     )
-
 
 @router.callback_query(EditHabitFSM.choose_field, F.data == "edit_field:end_time")
 async def edit_end_time_prompt(callback: CallbackQuery, state: FSMContext) -> None:
@@ -665,7 +638,6 @@ async def edit_end_time_prompt(callback: CallbackQuery, state: FSMContext) -> No
         ),
     )
 
-
 @router.callback_query(EditHabitFSM.choose_field, F.data == "edit_field:frequency")
 async def edit_frequency_prompt(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
@@ -674,11 +646,9 @@ async def edit_frequency_prompt(callback: CallbackQuery, state: FSMContext) -> N
         "📅 Выберите новую частоту:", reply_markup=get_frequency_keyboard()
     )
 
-
 # ===================================================================
 # Apply title change
 # ===================================================================
-
 
 @router.message(EditHabitFSM.title)
 async def apply_title_edit(message: Message, state: FSMContext) -> None:
@@ -707,11 +677,9 @@ async def apply_title_edit(message: Message, state: FSMContext) -> None:
         telegram_id=message.from_user.id, target=message, state=state
     )
 
-
 # ===================================================================
 # Apply start time — with conflict check
 # ===================================================================
-
 
 @router.callback_query(
     EditHabitFSM.start_time, F.data.startswith("time:"), F.data != "time:null"
@@ -793,12 +761,9 @@ async def apply_start_time_edit(callback: CallbackQuery, state: FSMContext) -> N
         telegram_id=callback.from_user.id, target=callback.message, state=state
     )
 
-
-
 # ===================================================================
 # Apply end time — with conflict check
 # ===================================================================
-
 
 @router.callback_query(EditHabitFSM.end_time, F.data.startswith("time:"))
 async def apply_end_time_edit(callback: CallbackQuery, state: FSMContext) -> None:
@@ -906,12 +871,9 @@ async def apply_end_time_edit(callback: CallbackQuery, state: FSMContext) -> Non
         telegram_id=callback.from_user.id, target=callback.message, state=state
     )
 
-
-
 # ===================================================================
 # Apply frequency — with conflict check
 # ===================================================================
-
 
 @router.callback_query(EditHabitFSM.frequency, F.data.startswith("freq:"))
 async def apply_frequency_edit(callback: CallbackQuery, state: FSMContext) -> None:
@@ -970,11 +932,9 @@ async def apply_frequency_edit(callback: CallbackQuery, state: FSMContext) -> No
         telegram_id=callback.from_user.id, target=callback.message, state=state
     )
 
-
 # ===================================================================
 # Conflict resolution handlers
 # ===================================================================
-
 
 @router.callback_query(
     ConflictHabitFSM.choose_action, F.data == "conflict_habit:force_add"
@@ -995,7 +955,6 @@ async def conflict_habit_force_add(callback: CallbackQuery, state: FSMContext) -
         )
     else:
         await _save_habit_from_fsm(callback, state)
-
 
 @router.callback_query(
     ConflictHabitFSM.choose_action, F.data == "conflict_habit:change_time"
@@ -1020,7 +979,6 @@ async def conflict_habit_change_time(
             reply_markup=get_time_selection_keyboard(),
         )
 
-
 @router.callback_query(
     ConflictHabitFSM.choose_action, F.data == "conflict_habit:change_frequency"
 )
@@ -1039,7 +997,6 @@ async def conflict_habit_change_frequency(
         "📅 Выберите частоту:", reply_markup=get_frequency_keyboard()
     )
 
-
 @router.callback_query(
     ConflictHabitFSM.choose_action, F.data == "conflict_habit:edit_schedule"
 )
@@ -1054,7 +1011,6 @@ async def conflict_habit_edit_schedule(
         reply_markup=get_habit_conflict_resolution_keyboard(is_edit=True),
     )
 
-
 @router.callback_query(
     ConflictHabitFSM.choose_action, F.data == "conflict_habit:edit_tasks"
 )
@@ -1067,11 +1023,9 @@ async def conflict_habit_edit_tasks(callback: CallbackQuery, state: FSMContext) 
         reply_markup=get_habit_conflict_resolution_keyboard(is_edit=True),
     )
 
-
 # ===================================================================
 # Delete flow
 # ===================================================================
-
 
 @router.callback_query(F.data.startswith("habit:delete:"))
 async def confirm_delete_habit(callback: CallbackQuery, state: FSMContext) -> None:
@@ -1102,7 +1056,6 @@ async def confirm_delete_habit(callback: CallbackQuery, state: FSMContext) -> No
         reply_markup=get_delete_confirmation_keyboard(habit_id),
     )
 
-
 @router.callback_query(
     EditHabitFSM.confirm_delete, F.data.startswith("habit:confirm_delete:")
 )
@@ -1121,11 +1074,9 @@ async def execute_delete_habit(callback: CallbackQuery, state: FSMContext) -> No
         telegram_id=callback.from_user.id, target=callback.message, state=state
     )
 
-
 # ===================================================================
 # Navigation — Back button
 # ===================================================================
-
 
 @router.callback_query(F.data == "nav:back")
 async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
@@ -1217,7 +1168,6 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
         )
         return
 
-
     # --- HabitFSM ---
     if current_state == HabitFSM.interact_list.state:
         await _show_habit_list(
@@ -1266,14 +1216,12 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
         "🏠 Главное меню бота\nВыберите действие:",
-        reply_markup=get_main_menu_keyboard(),
+        reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, "ru"),
     )
-
 
 # ===================================================================
 # Navigation — Cancel button (only for habit-related states)
 # ===================================================================
-
 
 @router.callback_query(
     F.data == "nav:cancel",
@@ -1294,7 +1242,7 @@ async def handle_cancel(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(MainFSM.main_menu)
         await callback.message.edit_text(
             "🏠 Главное меню бота\nВыберите действие:",
-            reply_markup=get_main_menu_keyboard(),
+            reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, "ru"),
         )
         return
 
@@ -1313,5 +1261,5 @@ async def handle_cancel(callback: CallbackQuery, state: FSMContext) -> None:
         )
     else:
         await callback.message.edit_text(
-            "❌ Создание привычки отменено.", reply_markup=get_main_menu_keyboard()
+            "❌ Создание привычки отменено.", reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, "ru")
         )

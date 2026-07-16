@@ -22,9 +22,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
-
 from src.db.models import Habit, Task, User
 from src.db.session import get_db
+from src.handlers.common import main_menu_keyboard_for_telegram
 from src.i18n import normalize_lang
 from src.keyboards.inline import (
     get_ai_choice_keyboard,
@@ -32,7 +32,6 @@ from src.keyboards.inline import (
     get_ai_plan_confirm_keyboard,
     get_habit_conflict_resolution_keyboard,
     get_hour_selection_keyboard,
-    get_main_menu_keyboard,
     get_minute_selection_keyboard,
     get_skip_only_keyboard,
 )
@@ -58,7 +57,6 @@ from src.utils.conflict import (
 )
 from src.utils.time_picker import PENDING_HOUR_KEY, parse_time_callback
 
-
 logger = logging.getLogger(__name__)
 
 router = Router()
@@ -75,11 +73,9 @@ AI_UNAVAILABLE_TEXT = (
 )
 """Friendly error when AI returns None / invalid payload."""
 
-
 # ---------------------------------------------------------------------------
 # Helpers: main menu / bot-chat / deliver
 # ---------------------------------------------------------------------------
-
 
 async def _return_to_main_menu(
     event: Message | CallbackQuery, state: FSMContext
@@ -88,7 +84,7 @@ async def _return_to_main_menu(
     await state.clear()
     await state.set_state(MainFSM.main_menu)
     text = "🏠 Главное меню бота\nВыберите действие:"
-    markup = get_main_menu_keyboard()
+    markup = await main_menu_keyboard_for_telegram(event.from_user.id, "ru")
     if isinstance(event, CallbackQuery):
         try:
             await event.answer()
@@ -101,13 +97,11 @@ async def _return_to_main_menu(
     else:
         await event.answer(text, reply_markup=markup)
 
-
 def _event_bot_chat(event: Message | CallbackQuery):
     """Return ``(bot, chat_id)`` for a Message or CallbackQuery event."""
     if isinstance(event, CallbackQuery):
         return event.bot, event.message.chat.id
     return event.bot, event.chat.id
-
 
 async def _deliver_ai_result(
     placeholder: Message | None,
@@ -154,7 +148,6 @@ async def _deliver_ai_result(
                 exc_info=True,
             )
 
-
 async def _show_waiting(
     event: Message | CallbackQuery,
 ) -> Message | None:
@@ -188,11 +181,9 @@ async def _show_waiting(
         )
         return None
 
-
 # ---------------------------------------------------------------------------
 # Context loading (language, timezone, habits/tasks summary)
 # ---------------------------------------------------------------------------
-
 
 async def _load_user_ai_context(telegram_id: int) -> dict[str, Any]:
     """Load language, timezone and habits/tasks summary for the AI prompt.
@@ -256,11 +247,9 @@ async def _load_user_ai_context(telegram_id: int) -> dict[str, Any]:
         "habits_tasks_summary": summary,
     }
 
-
 # ---------------------------------------------------------------------------
 # Question UI
 # ---------------------------------------------------------------------------
-
 
 def _question_to_dict(q: ClarifyingQuestion | dict | str) -> dict[str, Any]:
     """Serialize a clarifying question for FSM storage."""
@@ -270,7 +259,6 @@ def _question_to_dict(q: ClarifyingQuestion | dict | str) -> dict[str, Any]:
     if normalized is None:
         return {"text": str(q), "kind": "text", "options": None}
     return normalized.model_dump()
-
 
 def _keyboard_for_question(q: dict[str, Any]):
     """Return inline keyboard for a stored question dict."""
@@ -283,7 +271,6 @@ def _keyboard_for_question(q: dict[str, Any]):
     if kind == "time":
         return get_hour_selection_keyboard()
     return get_skip_only_keyboard()
-
 
 def _format_question_text(q: dict[str, Any], context: str | None = None) -> str:
     """Build message body for a clarifying question."""
@@ -298,7 +285,6 @@ def _format_question_text(q: dict[str, Any], context: str | None = None) -> str:
     elif kind == "time":
         parts.append("(выберите время с шагом 15 минут)")
     return "\n\n".join(p for p in parts if p)
-
 
 async def _present_next_question(
     event: Message | CallbackQuery,
@@ -338,7 +324,6 @@ async def _present_next_question(
             await event.message.answer(text, reply_markup=markup)
     else:
         await event.answer(text, reply_markup=markup)
-
 
 def _format_plan_preview(
     plan: ProposePlan | dict[str, Any],
@@ -382,12 +367,9 @@ def _format_plan_preview(
         "Создать привычку на основе этого плана?"
     )
 
-
-
 # ---------------------------------------------------------------------------
 # Core AI turn
 # ---------------------------------------------------------------------------
-
 
 async def _run_ai_turn(
     event: Message | CallbackQuery,
@@ -540,7 +522,6 @@ async def _run_ai_turn(
         )
         return
 
-
     # Unexpected type
     await _deliver_ai_result(
         placeholder,
@@ -548,7 +529,6 @@ async def _run_ai_turn(
         AI_UNAVAILABLE_TEXT,
         reply_markup=get_ai_fallback_keyboard(),
     )
-
 
 async def _record_answer_and_continue(
     event: Message | CallbackQuery,
@@ -577,18 +557,15 @@ async def _record_answer_and_continue(
     else:
         await _run_ai_turn(event, state)
 
-
 # ---------------------------------------------------------------------------
 # Cancel / back
 # ---------------------------------------------------------------------------
-
 
 @router.callback_query(F.data == "nav:cancel")
 async def handle_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     """Cancel the AI assistant wizard and return to the main menu."""
     await _return_to_main_menu(callback, state)
     logger.debug("AI assistant wizard cancelled by user %d", callback.from_user.id)
-
 
 @router.callback_query(F.data == "nav:back")
 async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
@@ -615,11 +592,9 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
 
     await _return_to_main_menu(callback, state)
 
-
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-
 
 @router.callback_query(F.data == "new_habit:ai")
 async def ai_start(callback: CallbackQuery, state: FSMContext) -> None:
@@ -632,11 +607,9 @@ async def ai_start(callback: CallbackQuery, state: FSMContext) -> None:
         "Опишите её одной фразой (например, 'Я хочу бегать каждое утро').",
     )
 
-
 # ---------------------------------------------------------------------------
 # State: start — receive habit title → first AI turn
 # ---------------------------------------------------------------------------
-
 
 @router.message(AIAssistantFSM.start)
 async def process_title(message: Message, state: FSMContext) -> None:
@@ -669,11 +642,9 @@ async def process_title(message: Message, state: FSMContext) -> None:
     )
     await _run_ai_turn(message, state)
 
-
 # ---------------------------------------------------------------------------
 # State: clarifying — text / choice / skip / time
 # ---------------------------------------------------------------------------
-
 
 @router.callback_query(AIAssistantFSM.clarifying, F.data == "assist:skip")
 async def process_clarifying_skip(
@@ -682,7 +653,6 @@ async def process_clarifying_skip(
     """Skip the current clarifying question."""
     await callback.answer()
     await _record_answer_and_continue(callback, state, "Пропущено")
-
 
 @router.callback_query(
     AIAssistantFSM.clarifying, F.data.startswith("assist:choice:")
@@ -704,7 +674,6 @@ async def process_clarifying_choice(
     else:
         answer = callback.data or "Пропущено"
     await _record_answer_and_continue(callback, state, answer)
-
 
 @router.callback_query(AIAssistantFSM.clarifying, F.data.startswith("time:"))
 async def process_clarifying_time(
@@ -745,25 +714,21 @@ async def process_clarifying_time(
     except Exception:
         pass
 
-
 @router.message(AIAssistantFSM.clarifying)
 async def process_clarifying_text(message: Message, state: FSMContext) -> None:
     """Handle free-text answer for the current clarifying question."""
     text = (message.text or "").strip()
     await _record_answer_and_continue(message, state, text if text else "Пропущено")
 
-
 # ---------------------------------------------------------------------------
 # State: confirm_plan — yes applies plan; no cancels (soft preview only before)
 # ---------------------------------------------------------------------------
-
 
 _FREQ_LABELS_RU: dict[str, str] = {
     "daily": "ежедневно",
     "weekdays": "по будням",
     "weekends": "по выходным",
 }
-
 
 def _build_ai_habit_conflict_message(
     title: str,
@@ -801,7 +766,6 @@ def _build_ai_habit_conflict_message(
     lines.append("\nВыберите действие:")
     return "\n".join(lines)
 
-
 async def _ensure_user_for_apply(
     session,
     telegram_id: int,
@@ -832,8 +796,6 @@ async def _ensure_user_for_apply(
         if last_name is not None and user.last_name != last_name:
             user.last_name = last_name
     return user
-
-
 
 async def _apply_confirmed_plan(
     callback: CallbackQuery,
@@ -943,7 +905,7 @@ async def _apply_confirmed_plan(
         f"Частота: {freq_label}\n"
         f"Время: {time_line}\n"
         f"Задач в расписании: {tasks_created}",
-        reply_markup=get_main_menu_keyboard(),
+        reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, "ru"),
         parse_mode="Markdown",
     )
     logger.info(
@@ -953,7 +915,6 @@ async def _apply_confirmed_plan(
         tasks_created,
         force,
     )
-
 
 @router.callback_query(AIAssistantFSM.confirm_plan)
 async def process_plan_confirmation(
@@ -972,13 +933,12 @@ async def process_plan_confirmation(
         await state.set_state(MainFSM.main_menu)
         await callback.message.edit_text(
             "Хорошо, может быть, в другой раз!",
-            reply_markup=get_main_menu_keyboard(),
+            reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, "ru"),
         )
         return
 
     # Unknown callback under confirm_plan — ignore safely
     logger.debug("Unhandled confirm_plan callback: %s", data_cb)
-
 
 @router.callback_query(
     ConflictHabitFSM.choose_action,
@@ -1022,5 +982,4 @@ async def ai_conflict_force_add(
                 }
             )
     await _apply_confirmed_plan(callback, state, force=True)
-
 

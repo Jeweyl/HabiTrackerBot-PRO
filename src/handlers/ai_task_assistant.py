@@ -24,6 +24,7 @@ from sqlalchemy import select
 
 from src.db.models import Habit, Task, User
 from src.db.session import get_db
+from src.handlers.common import main_menu_keyboard_for_telegram
 from src.i18n import normalize_lang, t
 from src.keyboards.inline import (
     get_ai_task_choice_keyboard,
@@ -31,7 +32,6 @@ from src.keyboards.inline import (
     get_ai_task_plan_confirm_keyboard,
     get_conflict_resolution_keyboard,
     get_hour_selection_keyboard,
-    get_main_menu_keyboard,
     get_minute_selection_keyboard,
 )
 
@@ -59,11 +59,9 @@ logger = logging.getLogger(__name__)
 router = Router()
 """Router for AI one-off task assistant handlers (B4)."""
 
-
 # ---------------------------------------------------------------------------
 # Helpers: main menu / bot-chat / deliver
 # ---------------------------------------------------------------------------
-
 
 async def _return_to_main_menu(
     event: Message | CallbackQuery, state: FSMContext, lang: str = "ru"
@@ -72,7 +70,7 @@ async def _return_to_main_menu(
     await state.clear()
     await state.set_state(MainFSM.main_menu)
     text = t("main.menu", lang)
-    markup = get_main_menu_keyboard(lang)
+    markup = await main_menu_keyboard_for_telegram(event.from_user.id, lang)
     if isinstance(event, CallbackQuery):
         try:
             await event.answer()
@@ -85,13 +83,11 @@ async def _return_to_main_menu(
     else:
         await event.answer(text, reply_markup=markup)
 
-
 def _event_bot_chat(event: Message | CallbackQuery):
     """Return ``(bot, chat_id)`` for a Message or CallbackQuery event."""
     if isinstance(event, CallbackQuery):
         return event.bot, event.message.chat.id
     return event.bot, event.chat.id
-
 
 async def _deliver_ai_result(
     placeholder: Message | None,
@@ -138,7 +134,6 @@ async def _deliver_ai_result(
                 exc_info=True,
             )
 
-
 async def _show_waiting(
     event: Message | CallbackQuery,
     lang: str = "ru",
@@ -174,11 +169,9 @@ async def _show_waiting(
         )
         return None
 
-
 # ---------------------------------------------------------------------------
 # Context loading
 # ---------------------------------------------------------------------------
-
 
 async def _load_user_ai_context(telegram_id: int) -> dict[str, Any]:
     """Load language, timezone and habits/tasks summary for the AI prompt.
@@ -248,11 +241,9 @@ async def _load_user_ai_context(telegram_id: int) -> dict[str, Any]:
         "today_local": today_local,
     }
 
-
 # ---------------------------------------------------------------------------
 # Question UI
 # ---------------------------------------------------------------------------
-
 
 def _question_to_dict(q: ClarifyingQuestion | dict | str) -> dict[str, Any]:
     """Serialize a clarifying question for FSM storage."""
@@ -262,7 +253,6 @@ def _question_to_dict(q: ClarifyingQuestion | dict | str) -> dict[str, Any]:
     if normalized is None:
         return {"text": str(q), "kind": "text", "options": None}
     return normalized.model_dump()
-
 
 def _task_skip_keyboard(lang: str = "ru"):
     """Skip/back/cancel using ``assist_task:`` namespace (not habit ``assist:``)."""
@@ -277,8 +267,6 @@ def _task_skip_keyboard(lang: str = "ru"):
     builder.adjust(1, 2)
     return finalize_markup(builder)
 
-
-
 def _keyboard_for_question(q: dict[str, Any], lang: str = "ru"):
     """Return inline keyboard for a stored question dict (task namespace)."""
     kind = q.get("kind") or "text"
@@ -290,8 +278,6 @@ def _keyboard_for_question(q: dict[str, Any], lang: str = "ru"):
     if kind == "time":
         return get_hour_selection_keyboard()
     return _task_skip_keyboard(lang)
-
-
 
 def _format_question_text(
     q: dict[str, Any], context: str | None = None, lang: str = "ru"
@@ -308,7 +294,6 @@ def _format_question_text(
     elif kind == "time":
         parts.append(t("task_ai.clarify_time_hint", lang))
     return "\n\n".join(p for p in parts if p)
-
 
 async def _present_next_question(
     event: Message | CallbackQuery,
@@ -349,7 +334,6 @@ async def _present_next_question(
             await event.message.answer(text, reply_markup=markup)
     else:
         await event.answer(text, reply_markup=markup)
-
 
 def _format_task_plan_preview(
     plan: ProposeTaskPlan | dict[str, Any],
@@ -395,12 +379,9 @@ def _format_task_plan_preview(
         body = body.rstrip() + f"\n\n{warn}"
     return body
 
-
-
 # ---------------------------------------------------------------------------
 # Core AI turn
 # ---------------------------------------------------------------------------
-
 
 async def _run_ai_turn(
     event: Message | CallbackQuery,
@@ -552,7 +533,6 @@ async def _run_ai_turn(
         )
         return
 
-
     # Unexpected type (e.g. ProposePlan habit) — treat as unavailable
     await _deliver_ai_result(
         placeholder,
@@ -560,7 +540,6 @@ async def _run_ai_turn(
         t("task_ai.unavailable", language),
         reply_markup=get_ai_task_fallback_keyboard(language),
     )
-
 
 async def _record_answer_and_continue(
     event: Message | CallbackQuery,
@@ -588,11 +567,9 @@ async def _record_answer_and_continue(
     else:
         await _run_ai_turn(event, state)
 
-
 # ---------------------------------------------------------------------------
 # Cancel / back
 # ---------------------------------------------------------------------------
-
 
 @router.callback_query(AITaskAssistantFSM.start, F.data == "nav:cancel")
 @router.callback_query(AITaskAssistantFSM.clarifying, F.data == "nav:cancel")
@@ -604,7 +581,6 @@ async def handle_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await _return_to_main_menu(callback, state, lang=lang)
     logger.debug("AI task assistant cancelled by user %d", callback.from_user.id)
 
-
 @router.callback_query(AITaskAssistantFSM.clarifying, F.data == "nav:back")
 @router.callback_query(AITaskAssistantFSM.confirm_plan, F.data == "nav:back")
 async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
@@ -615,11 +591,9 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AITaskAssistantFSM.start)
     await callback.message.edit_text(t("task_ai.prompt_title", lang))
 
-
 # ---------------------------------------------------------------------------
 # Entry points
 # ---------------------------------------------------------------------------
-
 
 @router.callback_query(F.data == "new_task:ai")
 async def ai_task_start(callback: CallbackQuery, state: FSMContext) -> None:
@@ -646,7 +620,6 @@ async def ai_task_start(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.edit_text(
         t("task_ai.prompt_title", ctx["language"]),
     )
-
 
 @router.callback_query(F.data.startswith("task:ai:"))
 async def ai_task_start_with_date(callback: CallbackQuery, state: FSMContext) -> None:
@@ -682,11 +655,9 @@ async def ai_task_start_with_date(callback: CallbackQuery, state: FSMContext) ->
         t("task_ai.prompt_title_dated", ctx["language"], date=selected.isoformat()),
     )
 
-
 # ---------------------------------------------------------------------------
 # State: start — receive task title → first AI turn
 # ---------------------------------------------------------------------------
-
 
 @router.message(AITaskAssistantFSM.start)
 async def process_title(message: Message, state: FSMContext) -> None:
@@ -727,11 +698,9 @@ async def process_title(message: Message, state: FSMContext) -> None:
     )
     await _run_ai_turn(message, state)
 
-
 # ---------------------------------------------------------------------------
 # State: clarifying — text / choice / skip / time
 # ---------------------------------------------------------------------------
-
 
 @router.callback_query(AITaskAssistantFSM.clarifying, F.data == "assist_task:skip")
 async def process_clarifying_skip(
@@ -740,7 +709,6 @@ async def process_clarifying_skip(
     """Skip the current clarifying question."""
     await callback.answer()
     await _record_answer_and_continue(callback, state, "Пропущено")
-
 
 @router.callback_query(
     AITaskAssistantFSM.clarifying, F.data.startswith("assist_task:choice:")
@@ -762,7 +730,6 @@ async def process_clarifying_choice(
     else:
         answer = callback.data or "Пропущено"
     await _record_answer_and_continue(callback, state, answer)
-
 
 @router.callback_query(AITaskAssistantFSM.clarifying, F.data.startswith("time:"))
 async def process_clarifying_time(
@@ -802,18 +769,15 @@ async def process_clarifying_time(
     except Exception:
         pass
 
-
 @router.message(AITaskAssistantFSM.clarifying)
 async def process_clarifying_text(message: Message, state: FSMContext) -> None:
     """Handle free-text answer for the current clarifying question."""
     text = (message.text or "").strip()
     await _record_answer_and_continue(message, state, text if text else "Пропущено")
 
-
 # ---------------------------------------------------------------------------
 # Confirm / apply
 # ---------------------------------------------------------------------------
-
 
 async def _ensure_user_for_apply(
     session,
@@ -846,8 +810,6 @@ async def _ensure_user_for_apply(
             user.last_name = last_name
     return user
 
-
-
 def _default_date_from_fsm(fsm_data: dict[str, Any]) -> date:
     """Parse task_date from FSM or fall back to today."""
     from datetime import datetime as _dt
@@ -861,8 +823,6 @@ def _default_date_from_fsm(fsm_data: dict[str, Any]) -> date:
         except ValueError:
             pass
     return date.today()
-
-
 
 async def _apply_confirmed_task_plan(
     callback: CallbackQuery,
@@ -980,7 +940,7 @@ async def _apply_confirmed_task_plan(
             date=resolved.task_date.isoformat(),
             time=time_line,
         ),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, lang),
         parse_mode="HTML",
     )
     logger.info(
@@ -991,13 +951,11 @@ async def _apply_confirmed_task_plan(
         getattr(task, "habit_id", None),
     )
 
-
 @router.callback_query(AITaskAssistantFSM.confirm_plan, F.data == "assist_task:yes")
 async def process_plan_yes(callback: CallbackQuery, state: FSMContext) -> None:
     """Confirm preview: apply one-off task."""
     await callback.answer()
     await _apply_confirmed_task_plan(callback, state, force=False)
-
 
 @router.callback_query(AITaskAssistantFSM.confirm_plan, F.data == "assist_task:no")
 async def process_plan_no(callback: CallbackQuery, state: FSMContext) -> None:
@@ -1009,9 +967,8 @@ async def process_plan_no(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
         t("task_ai.declined", lang),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, lang),
     )
-
 
 @router.callback_query(
     ConflictFSM.choose_action,

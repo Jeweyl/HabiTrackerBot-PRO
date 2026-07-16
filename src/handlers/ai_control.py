@@ -12,9 +12,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
-
 from src.db.models import Task, User
 from src.db.session import get_db
+from src.handlers.common import main_menu_keyboard_for_telegram
 from src.i18n import normalize_lang, t
 from src.keyboards.inline import (
     get_control_choice_keyboard,
@@ -23,7 +23,6 @@ from src.keyboards.inline import (
     get_control_pick_task_keyboard,
     get_control_skip_keyboard,
     get_hour_selection_keyboard,
-    get_main_menu_keyboard,
     get_minute_selection_keyboard,
     get_month_calendar_keyboard,
     get_new_habit_choice_keyboard,
@@ -70,11 +69,9 @@ logger = logging.getLogger(__name__)
 router = Router()
 """Router for free-form AI control (must be before common_router)."""
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
 
 async def _get_user_lang(telegram_id: int) -> str:
     async with get_db() as session:
@@ -85,7 +82,6 @@ async def _get_user_lang(telegram_id: int) -> str:
         if user is None:
             return "ru"
         return normalize_lang(user.language)
-
 
 async def _load_control_context(telegram_id: int) -> dict[str, Any]:
     """Load user, local now, today's tasks, prompt context."""
@@ -142,7 +138,6 @@ async def _load_control_context(telegram_id: int) -> dict[str, Any]:
         "telegram_id": telegram_id,
     }
 
-
 def _task_time_str(task: Task | None, lang: str) -> str:
     if task is None:
         return "—"
@@ -153,7 +148,6 @@ def _task_time_str(task: Task | None, lang: str) -> str:
         s = f"{s}–{task.end_time.strftime('%H:%M')}"
     return s
 
-
 def _resolved_time_str(resolved, lang: str) -> str:
     if resolved is None or resolved.start_time is None:
         return t("control.untimed", lang)
@@ -161,7 +155,6 @@ def _resolved_time_str(resolved, lang: str) -> str:
     if resolved.end_time is not None:
         s = f"{s}–{resolved.end_time.strftime('%H:%M')}"
     return s
-
 
 async def _reply(
     event: Message | CallbackQuery,
@@ -194,11 +187,10 @@ async def _reply(
             return
     await event.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
-
 async def _return_main(event: Message | CallbackQuery, state: FSMContext, lang: str) -> None:
     await state.clear()
     await state.set_state(MainFSM.main_menu)
-    markup = get_main_menu_keyboard(lang)
+    markup = await main_menu_keyboard_for_telegram(event.from_user.id, lang)
     if isinstance(event, CallbackQuery):
         try:
             await event.answer()
@@ -211,7 +203,6 @@ async def _return_main(event: Message | CallbackQuery, state: FSMContext, lang: 
     else:
         await event.answer(t("main.menu", lang), reply_markup=markup)
 
-
 def _question_to_dict(q: ClarifyingQuestion | dict | str) -> dict[str, Any]:
     if isinstance(q, ClarifyingQuestion):
         return q.model_dump()
@@ -219,7 +210,6 @@ def _question_to_dict(q: ClarifyingQuestion | dict | str) -> dict[str, Any]:
     if normalized is None:
         return {"text": str(q), "kind": "text", "options": None}
     return normalized.model_dump()
-
 
 def _keyboard_for_question(q: dict[str, Any], lang: str):
     kind = q.get("kind") or "text"
@@ -231,7 +221,6 @@ def _keyboard_for_question(q: dict[str, Any], lang: str):
     if kind == "time":
         return get_hour_selection_keyboard()
     return get_control_skip_keyboard(lang)
-
 
 def _format_question_text(q: dict[str, Any], context: str | None, lang: str) -> str:
     parts: list[str] = []
@@ -246,11 +235,9 @@ def _format_question_text(q: dict[str, Any], context: str | None, lang: str) -> 
         parts.append(t("control.clarify_time_hint", lang))
     return "\n\n".join(p for p in parts if p)
 
-
 # ---------------------------------------------------------------------------
 # Intent dispatch
 # ---------------------------------------------------------------------------
-
 
 async def _show_day_schedule(
     event: Message | CallbackQuery,
@@ -301,10 +288,9 @@ async def _show_day_schedule(
         await _reply(
             event,
             t("control.unavailable", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
         )
         await state.set_state(MainFSM.main_menu)
-
 
 async def _handle_list_tasks(
     event: Message | CallbackQuery,
@@ -334,7 +320,6 @@ async def _handle_list_tasks(
     await _show_day_schedule(
         event, state, day, placeholder=placeholder
     )
-
 
 async def _handle_open_menu(
     event: Message | CallbackQuery,
@@ -464,7 +449,7 @@ async def _handle_open_menu(
             t("main.statistics", lang)
             + "\n\n"
             + (t("stats.title_empty", lang)),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
             placeholder=placeholder,
         )
         return
@@ -473,20 +458,18 @@ async def _handle_open_menu(
         await _reply(
             event,
             t("help.text", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
             placeholder=placeholder,
         )
         return
 
-
     await _reply(
         event,
         t("control.unavailable", lang),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
         placeholder=placeholder,
     )
     await state.set_state(MainFSM.main_menu)
-
 
 async def _apply_create(
     event: Message | CallbackQuery,
@@ -506,7 +489,7 @@ async def _apply_create(
             await _reply(
                 event,
                 t("control.unavailable", lang),
-                reply_markup=get_main_menu_keyboard(lang),
+                reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
                 placeholder=placeholder,
             )
             return
@@ -546,7 +529,7 @@ async def _apply_create(
                     if task
                     else _resolved_time_str(resolved, lang),
                 ),
-                reply_markup=get_main_menu_keyboard(lang),
+                reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
                 placeholder=placeholder,
             )
             return
@@ -579,10 +562,9 @@ async def _apply_create(
         await _reply(
             event,
             t("control.unavailable", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
             placeholder=placeholder,
         )
-
 
 async def _start_mutate_confirm(
     event: Message | CallbackQuery,
@@ -614,7 +596,6 @@ async def _start_mutate_confirm(
         placeholder=placeholder,
     )
 
-
 async def _handle_mutate_intent(
     event: Message | CallbackQuery,
     state: FSMContext,
@@ -633,7 +614,7 @@ async def _handle_mutate_intent(
             await _reply(
                 event,
                 t("control.unavailable", lang),
-                reply_markup=get_main_menu_keyboard(lang),
+                reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
                 placeholder=placeholder,
             )
             return
@@ -677,10 +658,9 @@ async def _handle_mutate_intent(
         await _reply(
             event,
             t("control.not_found", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
             placeholder=placeholder,
         )
-
 
 async def _dispatch_intent(
     event: Message | CallbackQuery,
@@ -699,7 +679,7 @@ async def _dispatch_intent(
             await _reply(
                 event,
                 t("control.unavailable", lang),
-                reply_markup=get_main_menu_keyboard(lang),
+                reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
                 placeholder=placeholder,
             )
             await state.set_state(MainFSM.main_menu)
@@ -762,14 +742,13 @@ async def _dispatch_intent(
         )
         return
 
-
     if isinstance(intent, ControlMessage):
         await state.clear()
         await state.set_state(MainFSM.main_menu)
         await _reply(
             event,
             intent.text,
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
             placeholder=placeholder,
         )
         return
@@ -778,10 +757,9 @@ async def _dispatch_intent(
     await _reply(
         event,
         t("control.unavailable", lang),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
         placeholder=placeholder,
     )
-
 
 async def _run_control_turn(
     event: Message | CallbackQuery,
@@ -825,7 +803,7 @@ async def _run_control_turn(
         await _reply(
             event,
             t("control.unavailable", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
             placeholder=placeholder,
         )
         return
@@ -836,7 +814,7 @@ async def _run_control_turn(
         await _reply(
             event,
             t("control.unavailable", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(event.from_user.id, lang),
             placeholder=placeholder,
         )
         return
@@ -845,11 +823,9 @@ async def _run_control_turn(
         event, state, intent, lang, placeholder=placeholder
     )
 
-
 # ---------------------------------------------------------------------------
 # Entry: free text from main menu / idle
 # ---------------------------------------------------------------------------
-
 
 @router.message(StateFilter(MainFSM.main_menu), F.text, ~F.text.startswith("/"))
 @router.message(StateFilter(None), F.text, ~F.text.startswith("/"))
@@ -888,16 +864,14 @@ async def control_free_text(message: Message, state: FSMContext) -> None:
         await _reply(
             message,
             t("control.unavailable", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(message.from_user.id, lang),
             placeholder=placeholder,
         )
         await state.set_state(MainFSM.main_menu)
 
-
 # ---------------------------------------------------------------------------
 # Clarifying answers
 # ---------------------------------------------------------------------------
-
 
 async def _record_answer_and_continue(
     event: Message | CallbackQuery,
@@ -946,12 +920,10 @@ async def _record_answer_and_continue(
             wait_msg = None
     await _run_control_turn(event, state, placeholder=wait_msg)
 
-
 @router.callback_query(StateFilter(AIControlFSM.clarifying), F.data == "ctrl:skip")
 async def control_skip(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await _record_answer_and_continue(callback, state, "Пропущено")
-
 
 @router.callback_query(
     StateFilter(AIControlFSM.clarifying), F.data.startswith("ctrl:choice:")
@@ -967,7 +939,6 @@ async def control_choice(callback: CallbackQuery, state: FSMContext) -> None:
         idx = -1
     answer = options[idx] if 0 <= idx < len(options) else (callback.data or "")
     await _record_answer_and_continue(callback, state, answer)
-
 
 @router.callback_query(
     StateFilter(AIControlFSM.clarifying), F.data.startswith("time:")
@@ -1007,7 +978,6 @@ async def control_time_pick(callback: CallbackQuery, state: FSMContext) -> None:
         reply_markup=get_hour_selection_keyboard(),
     )
 
-
 @router.message(StateFilter(AIControlFSM.clarifying), F.text)
 async def control_clarify_text(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
@@ -1015,11 +985,9 @@ async def control_clarify_text(message: Message, state: FSMContext) -> None:
         return
     await _record_answer_and_continue(message, state, text)
 
-
 # ---------------------------------------------------------------------------
 # Confirm delete / complete / force create
 # ---------------------------------------------------------------------------
-
 
 @router.callback_query(StateFilter(AIControlFSM.confirm), F.data == "ctrl:no")
 async def control_confirm_no(callback: CallbackQuery, state: FSMContext) -> None:
@@ -1031,9 +999,8 @@ async def control_confirm_no(callback: CallbackQuery, state: FSMContext) -> None
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
         t("control.cancelled", lang),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, lang),
     )
-
 
 @router.callback_query(
     StateFilter(AIControlFSM.confirm), F.data.startswith("ctrl:yes:")
@@ -1055,7 +1022,7 @@ async def control_confirm_yes(callback: CallbackQuery, state: FSMContext) -> Non
         await state.set_state(MainFSM.main_menu)
         await callback.message.edit_text(
             t("control.unavailable", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, lang),
         )
         return
 
@@ -1067,7 +1034,7 @@ async def control_confirm_yes(callback: CallbackQuery, state: FSMContext) -> Non
         if user is None:
             await callback.message.edit_text(
                 t("control.unavailable", lang),
-                reply_markup=get_main_menu_keyboard(lang),
+                reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, lang),
             )
             return
         if action == "delete":
@@ -1084,15 +1051,14 @@ async def control_confirm_yes(callback: CallbackQuery, state: FSMContext) -> Non
     if outcome.status == "ok" and outcome.task is not None:
         await callback.message.edit_text(
             t(msg_key, lang, title=outcome.task.title or "—"),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, lang),
             parse_mode="HTML",
         )
     else:
         await callback.message.edit_text(
             t("control.not_found", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, lang),
         )
-
 
 @router.callback_query(
     StateFilter(AIControlFSM.confirm), F.data.startswith("ctrl:pick:")
@@ -1113,7 +1079,7 @@ async def control_pick_task(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(MainFSM.main_menu)
         await callback.message.edit_text(
             t("control.unavailable", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, lang),
         )
         return
 
@@ -1137,14 +1103,13 @@ async def control_pick_task(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(MainFSM.main_menu)
         await callback.message.edit_text(
             t("control.not_found", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, lang),
         )
         return
 
     await _start_mutate_confirm(
         callback, state, action=action, task=task, lang=lang
     )
-
 
 @router.callback_query(StateFilter(AIControlFSM.confirm), F.data == "ctrl:force_add")
 async def control_force_add(callback: CallbackQuery, state: FSMContext) -> None:
@@ -1156,7 +1121,7 @@ async def control_force_add(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(MainFSM.main_menu)
         await callback.message.edit_text(
             t("control.cancelled", lang),
-            reply_markup=get_main_menu_keyboard(lang),
+            reply_markup=await main_menu_keyboard_for_telegram(callback.from_user.id, lang),
         )
         return
     await _apply_create(
