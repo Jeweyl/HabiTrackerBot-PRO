@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HabiTracker — AI habit assistant for Telegram</title>
+    <meta
+      name="description"
+      content="Build habits in Telegram with smart scheduling, conflict checks, check-ins, AI goal coaching, and a Vue analytics dashboard. Core free. Premium with points."
+    />
+    <meta name="theme-color" content="#0b0f14" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container nav">
+        <a class="brand" href="#top">
+          <span class="brand-mark" aria-hidden="true">✓</span>
+          <span>HabiTracker</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-text" href="#features">Features</a>
+          <a class="nav-text" href="#demo">Demo</a>
+          <a class="nav-text" href="#freemium">Pricing</a>
+          <a class="nav-text" href="#business">Business</a>
+          <a class="lang-switch" href="https://jeweyl.github.io/HabiTracker-RU/" title="Русская версия">RU</a>
+          <a class="btn btn-primary" href="https://t.me/HabiTrakerBot" rel="noopener" target="_blank"
+            >Open bot</a
+          >
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="container hero-grid">
+          <div>
+            <div class="eyebrow">Telegram-first · Freemium</div>
+            <h1>Habits that run on a system — not willpower alone</h1>
+            <p class="hero-lead">
+              HabiTracker turns goals into a living schedule inside Telegram: templates generate
+              tasks, conflicts are caught early, check-ins stay polite, and AI helps you write
+              goals you can actually keep. Core tracking is free; AI and the web dashboard use
+              points.
+            </p>
+            <div class="hero-cta">
+              <a
+                class="btn btn-primary btn-lg"
+                href="https://t.me/HabiTrakerBot"
+                rel="noopener"
+                target="_blank"
+                >Open in Telegram</a
+              >
+              <a class="btn btn-ghost btn-lg" href="#demo">See what it looks like</a>
+            </div>
+            <p class="hero-meta">
+              Live demo · Channel
+              <a href="https://t.me/HabiTraker" rel="noopener" target="_blank">@HabiTraker</a>
+              · Product source is private
+            </p>
+          </div>
+          <aside class="hero-card" aria-label="Highlights">
+            <h3>Why teams and individuals try it</h3>
+            <ul class="checklist">
+              <li>Schedule-aware habits — not just a checkbox list</li>
+              <li>AI multi-turn coach → SMART plans on a 15-minute grid</li>
+              <li>Check-ins with anti-spam intervals</li>
+              <li>Vue dashboard: completion charts, breakdown, schedule</li>
+              <li>RU/EN in the bot · EN-first product positioning</li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+
+      <section id="problem">
+        <div class="container">
+          <div class="section-head">
+            <h2>Most habit apps fail the same way</h2>
+            <p>
+              Too simple to change behavior — or so heavy you abandon them in a week. HabiTracker
+              sits in Telegram, where you already are, and focuses on schedule integrity.
+            </p>
+          </div>
+          <div class="grid-3">
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">📭</div>
+              <h3>Empty checkboxes</h3>
+              <p>Streak apps don’t prevent double-booking your evening or vague goals.</p>
+            </article>
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">🧱</div>
+              <h3>Overloaded suites</h3>
+              <p>All-in-one productivity tools bury habits under projects and noise.</p>
+            </article>
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">🔕</div>
+              <h3>Spammy reminders</h3>
+              <p>Notifications without context train you to ignore every ping.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="features">
+        <div class="container">
+          <div class="section-head">
+            <h2>Built as a product, not a tutorial bot</h2>
+            <p>
+              Conflict-aware scheduling, FSM wizards, AI with a strict JSON contract, and a
+              read-only analytics web app — designed for daily use.
+            </p>
+          </div>
+          <div class="grid-2">
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">📋</div>
+              <h3>Habits & tasks</h3>
+              <p>
+                Templates for daily / weekdays / weekends, lazy day generation, edits with duration
+                preserved, and one-off tasks when you need a single block.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">🤖</div>
+              <h3>AI assistant</h3>
+              <p>
+                Multi-turn clarifying questions, SMART proposals, 15-minute snap, conflict checks
+                before anything hits your calendar.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">⏰</div>
+              <h3>Check-ins & conflicts</h3>
+              <p>
+                “Did you complete …?” after start time, throttled by your interval. Overlapping
+                slots are detected for tasks and recurring habits.
+              </p>
+            </article>
+            <article class="card">
+              <div class="icon-pill" aria-hidden="true">📊</div>
+              <h3>Dashboard</h3>
+              <p>
+                Open charts and schedule from the bot via a one-time link — completion trends,
+                per-habit breakdown, read-only day view.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="demo">
+        <div class="container">
+          <div class="section-head">
+            <h2>See it in motion</h2>
+            <p>
+              Drop your recordings into <code>media/</code>. Until then, placeholders mark where
+              GIFs and screenshots go for GitHub Pages and client demos.
+            </p>
+          </div>
+          <div class="grid-3">
+            <div>
+              <div class="demo-label">Habit flow</div>
+              <div class="demo-frame">
+                <img
+                  src="media/demo-habit.gif"
+                  alt="Demo: creating and completing a habit"
+                  onerror="this.style.display='none'; this.parentElement.querySelector('.hint').hidden=false;"
+                />
+                <p class="hint" hidden>
+                  Add <strong>media/demo-habit.gif</strong> — create habit → complete → streak
+                </p>
+              </div>
+            </div>
+            <div>
+              <div class="demo-label">AI coach</div>
+              <div class="demo-frame">
+                <img
+                  src="media/demo-ai.gif"
+                  alt="Demo: AI habit assistant"
+                  onerror="this.style.display='none'; this.parentElement.querySelector('.hint').hidden=false;"
+                />
+                <p class="hint" hidden>
+                  Add <strong>media/demo-ai.gif</strong> — vague goal → SMART plan
+                </p>
+              </div>
+            </div>
+            <div>
+              <div class="demo-label">Dashboard</div>
+              <div class="demo-frame">
+                <img
+                  src="media/demo-dashboard.png"
+                  alt="Demo: analytics dashboard"
+                  onerror="this.style.display='none'; this.parentElement.querySelector('.hint').hidden=false;"
+                />
+                <p class="hint" hidden>
+                  Add <strong>media/demo-dashboard.png</strong> — charts & schedule
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="how">
+        <div class="container">
+          <div class="section-head">
+            <h2>How it works</h2>
+            <p>From first message to a week of data in three steps.</p>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <div class="step-num">1</div>
+              <div>
+                <h3>Start the bot</h3>
+                <p>
+                  Open
+                  <a href="https://t.me/HabiTrakerBot" rel="noopener" target="_blank"
+                    >@HabiTrakerBot</a
+                  >
+                  and send <code>/start</code>. Pick language and timezone when ready.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">2</div>
+              <div>
+                <h3>Build a real schedule</h3>
+                <p>
+                  Add habits manually or with AI. Tasks appear on the calendar; conflicts surface
+                  before you commit.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">3</div>
+              <div>
+                <h3>Check in & review</h3>
+                <p>
+                  Complete items in chat, answer check-ins, then open the dashboard when you want
+                  charts — premium features use points.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="freemium">
+        <div class="container">
+          <div class="section-head">
+            <h2>Free core. Points for power features.</h2>
+            <p>
+              You can run a full habit system without paying. AI and the polished web dashboard
+              spend weekly points — or unlock with Pro when available.
+            </p>
+          </div>
+          <div class="price-grid">
+            <article class="price-card">
+              <h3>Core</h3>
+              <p class="price-note">Free forever on the public bot</p>
+              <ul>
+                <li>Habits & one-off tasks</li>
+                <li>Calendar & completion tracking</li>
+                <li>Conflict detection</li>
+                <li>Check-in notifications</li>
+                <li>Basic stats in Telegram</li>
+                <li>RU / EN settings</li>
+              </ul>
+            </article>
+            <article class="price-card featured">
+              <span class="tag">Premium</span>
+              <h3>Points & Pro</h3>
+              <p class="price-note">Weekly free grant · top-ups · Pro planned</p>
+              <ul>
+                <li>AI habit wizard (multi-turn)</li>
+                <li>AI one-off task assistant</li>
+                <li>Vue dashboard & charts</li>
+                <li>Soft paywall — core never locks</li>
+                <li>Telegram Stars packs (rolling out)</li>
+                <li>Pro: unlimited premium while active</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="business">
+        <div class="container">
+          <div class="banner">
+            <div>
+              <h2>For clients & partners</h2>
+              <p>
+                Need a walkthrough for stakeholders, a pilot, or a white-label discussion? Use the
+                live bot and this page as the demo kit — product source stays private under a
+                commercial license.
+              </p>
+            </div>
+            <div class="hero-cta">
+              <a
+                class="btn btn-primary"
+                href="https://t.me/HabiTrakerBot"
+                rel="noopener"
+                target="_blank"
+                >Try the demo bot</a
+              >
+              <a class="btn btn-ghost" href="https://t.me/Jeweyl" rel="noopener" target="_blank"
+                >Contact @Jeweyl</a
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-grid">
+        <div>
+          <strong style="color: var(--text)">HabiTracker</strong>
+          <div>Telegram habit assistant · freemium</div>
+        </div>
+        <div class="footer-links">
+          <a href="https://t.me/HabiTrakerBot" rel="noopener" target="_blank">Bot</a>
+          <a href="https://t.me/HabiTraker" rel="noopener" target="_blank">Channel</a>
+          <a href="https://jeweyl.github.io/HabiTracker-RU/">Русский</a>
+          <a href="https://t.me/Jeweyl" rel="noopener" target="_blank">Contact</a>
+        </div>
+      </div>
+      <div class="container legal">
+        © 2026 HabiTracker. Copyright (c) 2026 Jeweyl. All rights reserved. This site is a public
+        demo and media kit only — it does not include product source code. Unauthorized use of the
+        software is prohibited.
+      </div>
+    </footer>
+  </body>
+</html>

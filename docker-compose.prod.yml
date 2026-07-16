@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: habits_postgres_prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-habits_bot}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-habits_bot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - bot_network
+    mem_limit: 256m
+
+  redis:
+    image: redis:7-alpine
+    container_name: habits_redis_prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - bot_network
+    mem_limit: 128m
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: habits_bot_prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.prod
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - bot_network
+    mem_limit: 256m
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: habits_api_prod
+    restart: unless-stopped
+    command: ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.prod
+    networks:
+      - bot_network
+    mem_limit: 256m
+
+  # Dashboard: deploy from HabiTrackerBOT-WEB (../Web), not this compose.
+  # Set bot DASHBOARD_PUBLIC_URL to the public web URL.
+
+volumes:
+
+  postgres_data_prod:
+
+
+networks:
+  bot_network:
+    driver: bridge

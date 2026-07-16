@@ -1,0 +1,853 @@
+"""Strict Pydantic contract for AI assistant JSON responses.
+
+B1 scope: parse + validate only. No DB writes, no handler/UI changes.
+Invalid or untrusted AI output must never raise to callers — return ``None``.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from datetime import date, time
+from typing import Annotated, Any, Literal, Union
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+
+from src.utils.time_picker import MINUTES_15
+
+logger = logging.getLogger(__name__)
+
+_HH_MM_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+"""Strict ``HH:MM`` pattern (zero-padded hour and minute)."""
+
+FrequencyLiteral = Literal["daily", "weekdays", "weekends"]
+"""Allowed habit frequency values."""
+
+
+def _parse_hh_mm(value: str, *, require_grid: bool = False) -> time:
+    """Parse a zero-padded ``HH:MM`` string into :class:`datetime.time`.
+
+    B5: structural parse accepts any minute 00–59 so
+    :func:`src.services.ai_normalize.normalize_plan_times` can snap to the
+    15-minute grid and surface a preview warning. Pass
+    ``require_grid=True`` for strict picker-style validation.
+
+    Args:
+        value: Time string expected as ``HH:MM``.
+        require_grid: If True, minutes must be in {00,15,30,45}.
+
+    Returns:
+        Parsed ``time`` instance.
+
+    Raises:
+        ValueError: If the format is invalid, or grid required and off-grid.
+    """
+    if not isinstance(value, str):
+        raise ValueError("time must be a string in HH:MM format")
+    match = _HH_MM_RE.fullmatch(value.strip())
+    if match is None:
+        raise ValueError(f"invalid time format (expected HH:MM): {value!r}")
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if require_grid and minute not in MINUTES_15:
+        raise ValueError(
+            f"minutes must be one of :00/:15/:30/:45, got {value!r}"
+        )
+    return time(hour, minute)
+
+
+def _minutes_between(start: time, end: time) -> int:
+    """Return same-day duration in minutes from *start* to *end*.
+
+    Overnight ranges (end <= start) are not supported in B1.
+
+    Args:
+        start: Interval start.
+        end: Interval end (must be strictly after *start*).
+
+    Returns:
+        Positive duration in minutes.
+
+    Raises:
+        ValueError: If *end* is not strictly after *start*.
+    """
+    start_m = start.hour * 60 + start.minute
+    end_m = end.hour * 60 + end.minute
+    if end_m <= start_m:
+        raise ValueError(
+            f"end_time must be after start_time on the same day "
+            f"(got {start.strftime('%H:%M')}–{end.strftime('%H:%M')})"
+        )
+    return end_m - start_m
+
+
+class ScheduleOp(BaseModel):
+    """Optional schedule mutation proposed by the AI (applied in later steps).
+
+    Attributes:
+        op: Operation kind. Only ``set_schedule`` is allowed in B1.
+        start_time: Proposed start time ``HH:MM`` on the 15-minute grid.
+        end_time: Optional end time ``HH:MM`` on the 15-minute grid.
+        frequency: Optional frequency override.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    op: Literal["set_schedule"]
+    start_time: str
+    end_time: str | None = None
+    frequency: FrequencyLiteral | None = None
+
+    @field_validator("start_time")
+    @classmethod
+    def _validate_start_time(cls, value: str) -> str:
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("end_time")
+    @classmethod
+    def _validate_end_time(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> ScheduleOp:
+        if self.end_time is not None:
+            start = _parse_hh_mm(self.start_time)
+            end = _parse_hh_mm(self.end_time)
+            _minutes_between(start, end)
+        return self
+
+
+class ClarifyingQuestion(BaseModel):
+    """A single clarifying question the AI may ask the user.
+
+    Attributes:
+        text: Question text shown to the user.
+        kind: Input mode — free ``text``, ``choice`` buttons, or ``time`` picker.
+        options: Choice labels when ``kind="choice"`` (2–6 recommended).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    text: str = Field(min_length=1)
+    kind: Literal["text", "choice", "time"] = "text"
+    options: list[str] | None = None
+
+    @field_validator("text")
+    @classmethod
+    def _strip_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("question text must not be empty")
+        return cleaned
+
+    @field_validator("options")
+    @classmethod
+    def _clean_options(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned = [o.strip() for o in value if isinstance(o, str) and o.strip()]
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def _normalize_kind(self) -> ClarifyingQuestion:
+        """Downgrade choice without options to free text."""
+        if self.kind == "choice" and not self.options:
+            return self.model_copy(update={"kind": "text", "options": None})
+        return self
+
+
+def normalize_question(raw: Any) -> ClarifyingQuestion | None:
+    """Normalize a raw question item into :class:`ClarifyingQuestion`.
+
+    Accepts a plain string (→ ``kind=text``) or a dict/object. Returns
+    ``None`` for empty/invalid items (never raises).
+
+    Args:
+        raw: String, dict, ClarifyingQuestion, or garbage.
+
+    Returns:
+        Validated question or ``None``.
+    """
+    try:
+        if isinstance(raw, ClarifyingQuestion):
+            return raw
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return None
+            return ClarifyingQuestion(text=text, kind="text")
+        if isinstance(raw, dict):
+            # Plain {"text": "..."} or full shape
+            if "text" not in raw and "question" in raw:
+                raw = {**raw, "text": raw["question"]}
+            return ClarifyingQuestion.model_validate(raw)
+    except (ValidationError, ValueError, TypeError):
+        return None
+    return None
+
+
+class AskQuestions(BaseModel):
+    """AI asks clarifying questions instead of proposing a plan yet.
+
+    Attributes:
+        type: Discriminator; always ``ask_questions``.
+        questions: Non-empty list of questions (strings or structured).
+        context: Optional short context / reason for the questions.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["ask_questions"] = "ask_questions"
+    questions: list[Any] = Field(min_length=1)
+    context: str | None = None
+
+    @field_validator("questions", mode="before")
+    @classmethod
+    def _normalize_questions(cls, value: Any) -> list[ClarifyingQuestion]:
+        if not isinstance(value, list):
+            raise ValueError("questions must be a list")
+        cleaned: list[ClarifyingQuestion] = []
+        for item in value:
+            q = normalize_question(item)
+            if q is not None:
+                cleaned.append(q)
+        if not cleaned:
+            raise ValueError("questions must contain at least one non-empty question")
+        return cleaned
+
+
+class ProposePlan(BaseModel):
+    """AI proposes a concrete habit plan with schedule fields.
+
+    Attributes:
+        type: Discriminator; always ``propose_plan``.
+        title: Habit title (1–200 characters).
+        start_time: Start time ``HH:MM`` on the 15-minute grid.
+        end_time: Optional end time ``HH:MM`` on the 15-minute grid.
+        frequency: Optional frequency (``daily`` / ``weekdays`` / ``weekends``).
+        duration_minutes: Optional duration; if start+end+duration are all set,
+            duration must equal ``end - start`` (reject + log on mismatch).
+        comment: Free-text coach comment.
+        schedule_ops: Optional list of schedule operations (stub for B3).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["propose_plan"] = "propose_plan"
+    title: str = Field(min_length=1, max_length=200)
+    start_time: str
+    end_time: str | None = None
+    frequency: FrequencyLiteral | None = None
+    duration_minutes: int | None = None
+    comment: str = ""
+    schedule_ops: list[ScheduleOp] | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _strip_title(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("title must not be empty")
+        return cleaned
+
+    @field_validator("start_time")
+    @classmethod
+    def _validate_start_time(cls, value: str) -> str:
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("end_time")
+    @classmethod
+    def _validate_end_time(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def _validate_duration(cls, value: int | None) -> int | None:
+        """Structural check only; 15-min multiples enforced in normalize (B5)."""
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("duration_minutes must be an integer")
+        if value <= 0:
+            raise ValueError("duration_minutes must be positive")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_duration_integrity(self) -> ProposePlan:
+        """Structural range check only.
+
+        B5: duration vs end-start mismatch and off-grid times are corrected
+        (or rejected) by :func:`normalize_plan_times`, not here — so preview
+        can show the final times + warning.
+        """
+        if self.end_time is not None:
+            start = _parse_hh_mm(self.start_time)
+            end = _parse_hh_mm(self.end_time)
+            try:
+                _minutes_between(start, end)
+            except ValueError as exc:
+                logger.warning(
+                    "AI ProposePlan rejected: invalid time range %s–%s (%s)",
+                    self.start_time,
+                    self.end_time,
+                    exc,
+                )
+                raise
+            # Mismatch is OK at schema layer; normalize will recompute end.
+            if (
+                self.duration_minutes is not None
+                and self.duration_minutes
+                != (end.hour * 60 + end.minute - (start.hour * 60 + start.minute))
+            ):
+                logger.info(
+                    "AI ProposePlan duration mismatch deferred to normalize: "
+                    "duration_minutes=%s end-start span differs (%s–%s)",
+                    self.duration_minutes,
+                    self.start_time,
+                    self.end_time,
+                )
+        return self
+
+
+class ProposeTaskPlan(BaseModel):
+    """AI proposes a one-off task (schedule item), not a habit.
+
+    Attributes:
+        type: Discriminator; always ``propose_task``.
+        title: Task title (1–200 characters).
+        date: Optional ISO date ``YYYY-MM-DD``; handlers default to today.
+        start_time: Start time ``HH:MM`` on the 15-minute grid.
+        end_time: Optional end time ``HH:MM`` on the 15-minute grid.
+        duration_minutes: Optional duration; if start+end+duration are all set,
+            duration must equal ``end - start`` (reject + log on mismatch).
+        comment: Free-text coach comment.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["propose_task"] = "propose_task"
+    title: str = Field(min_length=1, max_length=200)
+    date: str | None = None
+    start_time: str
+    end_time: str | None = None
+    duration_minutes: int | None = None
+    comment: str = ""
+
+    @field_validator("title")
+    @classmethod
+    def _strip_title(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("title must not be empty")
+        return cleaned
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("date must be a string in YYYY-MM-DD format")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(f"invalid date format (expected YYYY-MM-DD): {value!r}") from exc
+        return cleaned
+
+    @field_validator("start_time")
+    @classmethod
+    def _validate_start_time(cls, value: str) -> str:
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("end_time")
+    @classmethod
+    def _validate_end_time(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def _validate_duration(cls, value: int | None) -> int | None:
+        """Structural check only; 15-min multiples enforced in normalize (B5)."""
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("duration_minutes must be an integer")
+        if value <= 0:
+            raise ValueError("duration_minutes must be positive")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_duration_integrity(self) -> ProposeTaskPlan:
+        """Structural range check only (B5: mismatch → normalize)."""
+        if self.end_time is not None:
+            start = _parse_hh_mm(self.start_time)
+            end = _parse_hh_mm(self.end_time)
+            try:
+                _minutes_between(start, end)
+            except ValueError as exc:
+                logger.warning(
+                    "AI ProposeTaskPlan rejected: invalid time range %s–%s (%s)",
+                    self.start_time,
+                    self.end_time,
+                    exc,
+                )
+                raise
+            if (
+                self.duration_minutes is not None
+                and self.duration_minutes
+                != (end.hour * 60 + end.minute - (start.hour * 60 + start.minute))
+            ):
+                logger.info(
+                    "AI ProposeTaskPlan duration mismatch deferred to normalize: "
+                    "duration_minutes=%s (%s–%s)",
+                    self.duration_minutes,
+                    self.start_time,
+                    self.end_time,
+                )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Free-form AI Control intents (natural language → actions)
+# ---------------------------------------------------------------------------
+
+
+ControlMenuTarget = Literal[
+    "new_habit_choice",
+    "new_habit_manual",
+    "new_habit_ai",
+    "new_task",
+    "new_task_ai",
+    "today",
+    "tomorrow",
+    "schedule",
+    "habits",
+    "settings",
+    "stats",
+    "help",
+]
+"""Allowed navigation targets for open_menu."""
+
+
+class ControlListTasks(BaseModel):
+    """Show the user's task list for a given local date (read-only view).
+
+    Attributes:
+        type: Discriminator; always ``list_tasks``.
+        date: Optional ISO date ``YYYY-MM-DD``; handlers default to local today.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["list_tasks"] = "list_tasks"
+    date: str | None = None
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("date must be a string in YYYY-MM-DD format")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid date format (expected YYYY-MM-DD): {value!r}"
+            ) from exc
+        return cleaned
+
+
+
+class ControlCreateTask(BaseModel):
+    """Create a one-off task from free-form control.
+
+    Attributes:
+        type: Discriminator; always ``create_task``.
+        title: Task title (1–200 characters).
+        date: Optional ISO date; handlers default to local today.
+        start_time: Optional ``HH:MM``; ``None`` = untimed todo.
+        end_time: Optional end ``HH:MM``; ``None`` = open-ended.
+        relative_minutes: If set, start = local_now + N (snapped to 15-min grid).
+        auto_rollover: Whether incomplete tasks roll to the next day.
+        comment: Optional coach note (not stored on Task).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["create_task"] = "create_task"
+    title: str = Field(min_length=1, max_length=200)
+    date: str | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+    relative_minutes: int | None = None
+    auto_rollover: bool = False
+    comment: str = ""
+
+    @field_validator("title")
+    @classmethod
+    def _strip_title(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("title must not be empty")
+        return cleaned
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("date must be a string in YYYY-MM-DD format")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid date format (expected YYYY-MM-DD): {value!r}"
+            ) from exc
+        return cleaned
+
+    @field_validator("start_time")
+    @classmethod
+    def _validate_start_time(cls, value: str | None) -> str | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("end_time")
+    @classmethod
+    def _validate_end_time(cls, value: str | None) -> str | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        _parse_hh_mm(value)
+        return value.strip()
+
+    @field_validator("relative_minutes")
+    @classmethod
+    def _validate_relative(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("relative_minutes must be an integer")
+        if value <= 0:
+            raise ValueError("relative_minutes must be positive")
+        if value > 7 * 24 * 60:
+            raise ValueError("relative_minutes too large")
+        return value
+
+
+class ControlDeleteTask(BaseModel):
+    """Delete a task matched by query / id / date."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["delete_task"] = "delete_task"
+    query: str | None = None
+    date: str | None = None
+    task_id: int | None = None
+
+    @field_validator("query")
+    @classmethod
+    def _strip_query(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("date must be a string in YYYY-MM-DD format")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid date format (expected YYYY-MM-DD): {value!r}"
+            ) from exc
+        return cleaned
+
+    @field_validator("task_id")
+    @classmethod
+    def _validate_task_id(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError("task_id must be a positive integer")
+        return value
+
+
+class ControlCompleteTask(BaseModel):
+    """Mark a task completed, matched by query / id / date."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["complete_task"] = "complete_task"
+    query: str | None = None
+    date: str | None = None
+    task_id: int | None = None
+
+    @field_validator("query")
+    @classmethod
+    def _strip_query(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("date")
+    @classmethod
+    def _validate_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("date must be a string in YYYY-MM-DD format")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid date format (expected YYYY-MM-DD): {value!r}"
+            ) from exc
+        return cleaned
+
+    @field_validator("task_id")
+    @classmethod
+    def _validate_task_id(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError("task_id must be a positive integer")
+        return value
+
+
+class ControlOpenMenu(BaseModel):
+    """Navigate to an existing bot menu / wizard entry (no DB write)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["open_menu"] = "open_menu"
+    target: ControlMenuTarget
+
+
+class ControlMessage(BaseModel):
+    """Plain reply without side effects (fallback / out of scope)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["message"] = "message"
+    text: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("text")
+    @classmethod
+    def _strip_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("text must not be empty")
+        return cleaned
+
+
+AIResponse = Annotated[
+    Union[AskQuestions, ProposePlan, ProposeTaskPlan],
+    Field(discriminator="type"),
+]
+"""Discriminated union of wizard AI response shapes."""
+
+ControlResponse = Annotated[
+    Union[
+        AskQuestions,
+        ControlCreateTask,
+        ControlDeleteTask,
+        ControlCompleteTask,
+        ControlListTasks,
+        ControlOpenMenu,
+        ControlMessage,
+    ],
+    Field(discriminator="type"),
+]
+"""Discriminated union of free-form control AI response shapes."""
+
+
+
+def _coerce_json_payload(raw: str | dict[str, Any] | None) -> dict[str, Any] | None:
+    """Parse raw model content into a dict, or return ``None``."""
+    if raw is None:
+        logger.warning("parse_ai_response: raw is None")
+        return None
+
+    data: Any
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            logger.warning("parse_ai_response: empty/whitespace content")
+            return None
+        # Tolerate optional markdown fences from chatty models
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning(
+                "parse_ai_response: non-JSON content (%s): %s...",
+                exc,
+                text[:200],
+            )
+            return None
+    elif isinstance(raw, dict):
+        data = raw
+    else:
+        logger.warning(
+            "parse_ai_response: unsupported raw type %s",
+            type(raw).__name__,
+        )
+        return None
+
+    if not isinstance(data, dict):
+        logger.warning(
+            "parse_ai_response: JSON root is not an object: %s",
+            type(data).__name__,
+        )
+        return None
+    return data
+
+
+def parse_ai_response(
+    raw: str | dict[str, Any] | None,
+) -> AskQuestions | ProposePlan | ProposeTaskPlan | None:
+    """Parse and validate a raw AI payload into a typed wizard response.
+
+    Never raises for untrusted input. Returns ``None`` on any failure
+    (null/empty content, non-JSON, schema/validation errors).
+
+    Args:
+        raw: Raw model content string, already-parsed dict, or ``None``.
+
+    Returns:
+        Validated ``AskQuestions``, ``ProposePlan``, or ``ProposeTaskPlan``,
+        or ``None``.
+    """
+    data = _coerce_json_payload(raw)
+    if data is None:
+        return None
+
+    try:
+        response_type = data.get("type")
+        if response_type == "ask_questions":
+            return AskQuestions.model_validate(data)
+        if response_type == "propose_plan":
+            return ProposePlan.model_validate(data)
+        if response_type == "propose_task":
+            return ProposeTaskPlan.model_validate(data)
+        logger.warning(
+            "parse_ai_response: missing or unknown type %r",
+            response_type,
+        )
+        return None
+    except ValidationError as exc:
+        logger.warning("parse_ai_response: validation failed: %s", exc)
+        return None
+    except Exception as exc:  # noqa: BLE001 — never crash callers
+        logger.error(
+            "parse_ai_response: unexpected error: %s",
+            exc,
+            exc_info=True,
+        )
+        return None
+
+
+def parse_control_response(
+    raw: str | dict[str, Any] | None,
+) -> (
+    AskQuestions
+    | ControlCreateTask
+    | ControlDeleteTask
+    | ControlCompleteTask
+    | ControlListTasks
+    | ControlOpenMenu
+    | ControlMessage
+    | None
+):
+    """Parse free-form control AI JSON into a typed intent.
+
+    Never raises for untrusted input. Returns ``None`` on failure.
+    """
+    data = _coerce_json_payload(raw)
+    if data is None:
+        return None
+
+    try:
+        response_type = data.get("type")
+        if response_type == "ask_questions":
+            return AskQuestions.model_validate(data)
+        if response_type == "create_task":
+            return ControlCreateTask.model_validate(data)
+        if response_type == "delete_task":
+            return ControlDeleteTask.model_validate(data)
+        if response_type == "complete_task":
+            return ControlCompleteTask.model_validate(data)
+        if response_type == "list_tasks":
+            return ControlListTasks.model_validate(data)
+        if response_type == "open_menu":
+            return ControlOpenMenu.model_validate(data)
+        if response_type == "message":
+            return ControlMessage.model_validate(data)
+        logger.warning(
+            "parse_control_response: missing or unknown type %r",
+            response_type,
+        )
+        return None
+    except ValidationError as exc:
+        logger.warning("parse_control_response: validation failed: %s", exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "parse_control_response: unexpected error: %s",
+            exc,
+            exc_info=True,
+        )
+        return None
+
+
+
