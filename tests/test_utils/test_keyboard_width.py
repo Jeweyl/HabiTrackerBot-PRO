@@ -141,3 +141,16 @@ class TestRealKeyboards:
         ]
         assert "📋 Привычки" in labels
         assert "⚙️ Настройки" in labels
+
+    def test_main_menu_dashboard_first_when_url(self) -> None:
+        url = "https://dash.example.com/login?token=abc"
+        kb = get_main_menu_keyboard("ru", dashboard_url=url)
+        first = kb.inline_keyboard[0][0]
+        assert strip_button_padding(first.text or "") == "🌐 Открыть приложение"
+        assert first.web_app is not None
+        assert first.web_app.url == url
+        second = kb.inline_keyboard[1][0]
+        assert strip_button_padding(second.text or "") == "📋 Привычки"
+        assert second.callback_data == "main_menu:habits"
+
+

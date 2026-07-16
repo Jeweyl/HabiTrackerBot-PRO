@@ -5,7 +5,7 @@ import logging
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 
@@ -18,6 +18,7 @@ from src.keyboards.inline import (
     get_main_menu_keyboard,
     get_new_habit_choice_keyboard,
 )
+from src.services.dashboard_link import issue_bot_dashboard_url
 from src.states.fsm import MainFSM
 from src.utils.keyboard_width import finalize_markup
 
@@ -26,6 +27,38 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 """Router for common handlers (start, main menu)."""
+
+
+async def main_menu_keyboard_for_telegram(
+    telegram_id: int,
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    """Build main menu with optional dashboard Web App button (first row).
+
+    Looks up the internal user id for *telegram_id*, issues a one-time
+    dashboard login URL when possible, and places «Open app» above Habits.
+    """
+    user_id: int | None = None
+    try:
+        async with get_db() as session:
+            result = await session.execute(
+                select(User.id).where(User.telegram_id == telegram_id)
+            )
+            row = result.scalar_one_or_none()
+            if row is not None:
+                user_id = int(row)
+    except Exception:
+        logger.exception(
+            "main_menu_keyboard_for_telegram: user lookup failed telegram_id=%s",
+            telegram_id,
+        )
+
+    dashboard_url: str | None = None
+    if user_id is not None:
+        dashboard_url = await issue_bot_dashboard_url(user_id)
+
+    return get_main_menu_keyboard(lang, dashboard_url=dashboard_url)
+
 
 
 def _build_start_text(
@@ -160,8 +193,11 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             original_bot_username=settings.ORIGINAL_BOT_USERNAME,
             lang=lang,
         ),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(
+            telegram_id, lang
+        ),
     )
+
 
 
 # ===========================================================================
@@ -177,8 +213,11 @@ async def menu_reply_keyboard(message: Message, state: FSMContext) -> None:
     await state.set_state(MainFSM.main_menu)
     await message.answer(
         t("main.menu", lang),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(
+            message.from_user.id, lang
+        ),
     )
+
 
 
 # ===========================================================================
@@ -271,8 +310,11 @@ async def handle_cancel_fallback(callback: CallbackQuery, state: FSMContext) -> 
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
         t("main.menu", lang),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(
+            callback.from_user.id, lang
+        ),
     )
+
 
 
 # ===========================================================================
@@ -289,7 +331,9 @@ async def handle_input_cancel(callback: CallbackQuery, state: FSMContext) -> Non
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
         t("common.cancelled", lang),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(
+            callback.from_user.id, lang
+        ),
     )
 
 
@@ -302,5 +346,9 @@ async def handle_input_goto_main(callback: CallbackQuery, state: FSMContext) -> 
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
         t("main.menu", lang),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(
+            callback.from_user.id, lang
+        ),
     )
+
+

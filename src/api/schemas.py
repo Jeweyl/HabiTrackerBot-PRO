@@ -194,5 +194,52 @@ class TaskUpdateRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class HabitResponse(BaseModel):
+    """Single habit template for dashboard CRUD."""
+
+    id: int
+    title: str
+    start_time: str
+    end_time: str | None
+    frequency: str
+
+
+class HabitListResponse(BaseModel):
+    """All habits for the authenticated user."""
+
+    items: list[HabitResponse]
+
+
+class HabitCreateRequest(BaseModel):
+    """Create a recurring habit template."""
+
+    title: str = Field(..., min_length=1, max_length=200)
+    start_time: str = Field(..., description="HH:MM on 15-minute grid")
+    end_time: Optional[str] = Field(
+        default=None, description="HH:MM or null for open-ended"
+    )
+    frequency: str = Field(
+        default="daily",
+        description="daily | weekdays | weekends",
+    )
+
+    model_config = {"extra": "forbid"}
+
+
+class HabitUpdateRequest(BaseModel):
+    """Partial habit update. Omitted fields unchanged.
+
+    To clear end_time (open-ended), send ``\"end_time\": null`` explicitly.
+    """
+
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    frequency: Optional[str] = None
+
+    model_config = {"extra": "forbid"}
+
+
+
 
 

@@ -11,10 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
 from src.api.routes import auth as auth_routes
+from src.api.routes import habits as habits_routes
 from src.api.routes import health as health_routes
 from src.api.routes import me as me_routes
 from src.api.routes import stats as stats_routes
 from src.api.routes import tasks as tasks_routes
+
 
 
 from src.api.token_store import MemoryTokenStore, RedisTokenStore, TokenStore
@@ -89,8 +91,10 @@ def create_app(
     app.include_router(auth_routes.router)
     app.include_router(me_routes.router)
     app.include_router(tasks_routes.router)
+    app.include_router(habits_routes.router)
     app.include_router(stats_routes.router)
     return app
+
 
 
 

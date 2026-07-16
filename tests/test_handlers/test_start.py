@@ -32,12 +32,14 @@ async def test_start_creates_user(
     with patch("src.handlers.common.get_db", side_effect=_mock_get_db):
         message = await client.send_message("/start")
 
-    # Onboarding text + main menu keyboard
+    # Onboarding text + main menu keyboard (callback rows; dashboard optional)
     assert message.text is not None
     assert "HabiTracker" in message.text
     assert "Создать привычку" in message.text or "создать привычку" in message.text.lower()
     assert message.reply_markup is not None
-    assert len(message.reply_markup.inline_keyboard) == 9
+    # Without DASHBOARD_PUBLIC_URL / Redis in tests: only callback buttons
+    assert len(message.reply_markup.inline_keyboard) == len(MAIN_MENU_BUTTONS)
+
 
     # Check that the user was persisted
     stmt = select(User).where(User.telegram_id == 123456)
@@ -95,14 +97,25 @@ async def test_start_sends_correct_keyboard(
         message = await client.send_message("/start")
 
     keyboard = message.reply_markup.inline_keyboard
-    assert len(keyboard) == len(MAIN_MENU_BUTTONS)
-
     from src.utils.keyboard_width import strip_button_padding
 
-    for row, (expected_label, expected_cb) in zip(keyboard, MAIN_MENU_BUTTONS):
+    # Optional leading Web App row when dashboard URL is available
+    offset = 0
+    if keyboard and keyboard[0] and getattr(keyboard[0][0], "web_app", None):
+        offset = 1
+        assert "приложение" in strip_button_padding(keyboard[0][0].text).lower() or (
+            "app" in strip_button_padding(keyboard[0][0].text).lower()
+        )
+
+    assert len(keyboard) == len(MAIN_MENU_BUTTONS) + offset
+
+    for row, (expected_label, expected_cb) in zip(
+        keyboard[offset:], MAIN_MENU_BUTTONS
+    ):
         assert len(row) == 1
         assert strip_button_padding(row[0].text) == expected_label
         assert row[0].callback_data == expected_cb
+
 
 
 

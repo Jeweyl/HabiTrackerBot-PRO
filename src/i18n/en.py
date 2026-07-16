@@ -19,7 +19,9 @@ STRINGS: dict[str, str] = {
     "start.cta": "Choose an action:",
     # --- main menu labels ---
     "main.menu": "🏠 Main menu\nChoose an action:",
+    "main.open_dashboard": "🌐 Open app",
     "main.habits": "📋 Habits",
+
     "main.new_habit": "➕ Create habit",
     "main.new_task": "➕ Add task",
     "main.today_tasks": "📅 Today's tasks",
@@ -73,6 +75,7 @@ STRINGS: dict[str, str] = {
     # --- help ---
     "help.text": (
         "📖 <b>How to use the bot:</b>\n\n"
+        "• <b>🌐 Open app</b> — web dashboard (habits, tasks, stats)\n"
         "• <b>➕ Create habit</b> — create a new habit manually "
         "or with the AI assistant\n"
         "• <b>📋 Habits</b> — view and manage your habits\n"
@@ -81,6 +84,7 @@ STRINGS: dict[str, str] = {
         "• <b>❓ Help</b> — you are here!\n\n"
         "Support: @support"
     ),
+
     # --- common ---
     "common.back": "⬅️ Back",
     "common.main_menu_btn": "🏠 Main menu",

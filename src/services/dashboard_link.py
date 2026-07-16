@@ -42,6 +42,24 @@ def build_login_url(base_url: str, token: str) -> str:
     return f"{base_url.rstrip('/')}/login?token={safe_token}"
 
 
+async def issue_bot_dashboard_url(user_id: int) -> str | None:
+    """Issue a dashboard login URL using the bot process Redis client.
+
+    Used by Telegram handlers (main menu, statistics). Returns ``None`` when
+    the dashboard is not configured or Redis/token creation fails — never
+    raises for those cases.
+    """
+    try:
+        from src.api.token_store import RedisTokenStore
+        from src.bot import redis as bot_redis
+
+        store = RedisTokenStore(bot_redis)
+        return await issue_dashboard_link(user_id, store)
+    except Exception:
+        logger.exception("Dashboard link failed for user_id=%s", user_id)
+        return None
+
+
 async def issue_dashboard_link(
     user_id: int,
     store: TokenStore | SupportsCreateOtt,
@@ -49,6 +67,7 @@ async def issue_dashboard_link(
     base_url: str | None = None,
     ttl_seconds: int | None = None,
 ) -> str | None:
+
     """Issue a one-time dashboard login URL for *user_id*.
 
     Returns:

@@ -3,13 +3,14 @@
 import calendar
 from datetime import date, time
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.i18n import t
 from src.utils.keyboard_width import finalize_markup
 
 # callback_data values are stable; labels come from i18n.
+# Order: habits first among callbacks; dashboard web_app is prepended separately.
 _MAIN_MENU_CALLBACKS: list[tuple[str, str]] = [
     ("main.habits", "main_menu:habits"),
     ("main.new_habit", "main_menu:new_habit"),
@@ -33,20 +34,37 @@ MAIN_MENU_BUTTONS: list[tuple[str, str]] = get_main_menu_buttons("ru")
 """List of (label, callback_data) tuples for the main menu buttons (RU)."""
 
 
-def get_main_menu_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+def get_main_menu_keyboard(
+    lang: str = "ru",
+    *,
+    dashboard_url: str | None = None,
+) -> InlineKeyboardMarkup:
     """Build the main menu inline keyboard with one button per row.
+
+    When *dashboard_url* is set, a Web App button is placed **first** (above
+    «Habits»), opening the Vue dashboard inside Telegram.
 
     Args:
         lang: User language code (``ru`` / ``en``).
+        dashboard_url: Optional one-time login URL for the web dashboard.
 
     Returns:
         InlineKeyboardMarkup with one button per row.
     """
     builder = InlineKeyboardBuilder()
+    if dashboard_url:
+        builder.row(
+            InlineKeyboardButton(
+                text=t("main.open_dashboard", lang),
+                web_app=WebAppInfo(url=dashboard_url),
+            )
+        )
     for label, callback_data in get_main_menu_buttons(lang):
-        builder.button(text=label, callback_data=callback_data)
-    builder.adjust(1)  # One button per row
+        builder.row(
+            InlineKeyboardButton(text=label, callback_data=callback_data)
+        )
     return finalize_markup(builder)
+
 
 
 

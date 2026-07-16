@@ -337,7 +337,7 @@ class TestStatisticsNoData:
 
 
 class TestStatisticsDashboardButton:
-    """Dashboard URL button appears only when a link is issued."""
+    """Dashboard Web App button appears only when a link is issued."""
 
     @pytest.mark.asyncio
     async def test_dashboard_button_when_link_available(
@@ -345,7 +345,7 @@ class TestStatisticsDashboardButton:
         full_client: "TestClient",
         async_session: AsyncSession,
     ) -> None:
-        """When issue_dashboard_link returns a URL, keyboard has a url button."""
+        """When issue_bot_dashboard_url returns a URL, keyboard has a web_app button."""
         await _create_user(async_session)
         dash_url = "http://localhost:8080/login?token=abc123"
 
@@ -355,10 +355,9 @@ class TestStatisticsDashboardButton:
                 _mock_get_db_context(async_session),
             ),
             patch(
-                "src.handlers.statistics.issue_dashboard_link",
+                "src.services.dashboard_link.issue_bot_dashboard_url",
                 return_value=dash_url,
             ),
-            patch("src.handlers.statistics.RedisTokenStore"),
         ):
             resp: Message = await full_client.send_callback(
                 "main_menu:statistics",
@@ -368,13 +367,13 @@ class TestStatisticsDashboardButton:
 
         markup = resp.reply_markup
         assert markup is not None
-        urls = [
-            btn.url
+        web_urls = [
+            btn.web_app.url
             for row in markup.inline_keyboard
             for btn in row
-            if getattr(btn, "url", None)
+            if getattr(btn, "web_app", None) is not None
         ]
-        assert dash_url in urls
+        assert dash_url in web_urls
         callbacks = [
             btn.callback_data
             for row in markup.inline_keyboard
@@ -392,7 +391,7 @@ class TestStatisticsDashboardButton:
         full_client: "TestClient",
         async_session: AsyncSession,
     ) -> None:
-        """Empty DASHBOARD_PUBLIC_URL → refresh-link callback, no url button."""
+        """Empty DASHBOARD_PUBLIC_URL → refresh-link callback, no web_app button."""
         await _create_user(async_session)
 
         with (
@@ -401,10 +400,9 @@ class TestStatisticsDashboardButton:
                 _mock_get_db_context(async_session),
             ),
             patch(
-                "src.handlers.statistics.issue_dashboard_link",
+                "src.services.dashboard_link.issue_bot_dashboard_url",
                 return_value=None,
             ),
-            patch("src.handlers.statistics.RedisTokenStore"),
         ):
             resp: Message = await full_client.send_callback(
                 "main_menu:statistics",
@@ -414,13 +412,13 @@ class TestStatisticsDashboardButton:
 
         markup = resp.reply_markup
         assert markup is not None
-        urls = [
-            btn.url
+        web_urls = [
+            btn.web_app.url
             for row in markup.inline_keyboard
             for btn in row
-            if getattr(btn, "url", None)
+            if getattr(btn, "web_app", None) is not None
         ]
-        assert urls == []
+        assert web_urls == []
         callbacks = [
             btn.callback_data
             for row in markup.inline_keyboard
@@ -453,10 +451,9 @@ class TestStatisticsInteractive:
                 _mock_get_db_context(async_session),
             ),
             patch(
-                "src.handlers.statistics.issue_dashboard_link",
+                "src.services.dashboard_link.issue_bot_dashboard_url",
                 return_value=None,
             ),
-            patch("src.handlers.statistics.RedisTokenStore"),
         ):
             resp: Message = await full_client.send_callback(
                 "stats:period:30",
@@ -499,10 +496,9 @@ class TestStatisticsInteractive:
                 _mock_get_db_context(async_session),
             ),
             patch(
-                "src.handlers.statistics.issue_dashboard_link",
+                "src.services.dashboard_link.issue_bot_dashboard_url",
                 return_value=None,
             ),
-            patch("src.handlers.statistics.RedisTokenStore"),
         ):
             resp: Message = await full_client.send_callback(
                 "stats:habits:7",
@@ -538,10 +534,9 @@ class TestStatisticsInteractive:
                 _mock_get_db_context(async_session),
             ),
             patch(
-                "src.handlers.statistics.issue_dashboard_link",
+                "src.services.dashboard_link.issue_bot_dashboard_url",
                 return_value=None,
             ),
-            patch("src.handlers.statistics.RedisTokenStore"),
         ):
             resp: Message = await full_client.send_callback(
                 "stats:daily:7",
@@ -553,5 +548,6 @@ class TestStatisticsInteractive:
         assert label in resp.text
         assert "✅1" in resp.text
         assert "❌1" in resp.text
+
 
 

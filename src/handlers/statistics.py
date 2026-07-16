@@ -15,15 +15,14 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 
-from src.api.token_store import RedisTokenStore
 from src.db.models import User
 from src.db.session import get_db
 
 from src.i18n import normalize_lang, t
 from src.services import stats_service
-from src.services.dashboard_link import issue_dashboard_link
 from src.services.stats_service import HabitBreakdownItem, OverviewStats
 from src.utils.keyboard_width import finalize_markup
+
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +60,10 @@ async def _load_user(telegram_id: int) -> tuple[int | None, str]:
 
 async def _issue_dashboard_url(user_id: int) -> str | None:
     """Create a one-time dashboard login URL, or None on config/store errors."""
-    try:
-        from src.bot import redis as bot_redis
+    from src.services.dashboard_link import issue_bot_dashboard_url
 
-        store = RedisTokenStore(bot_redis)
-        return await issue_dashboard_link(user_id, store)
-    except Exception:
-        logger.exception("Dashboard link failed for user_id=%s", user_id)
-        return None
+    return await issue_bot_dashboard_url(user_id)
+
 
 
 def _stats_keyboard(

@@ -14,14 +14,15 @@ from sqlalchemy import select
 from src.db.models import User
 from src.db.session import get_db
 from src.i18n import normalize_lang, t
+from src.handlers.common import main_menu_keyboard_for_telegram
 from src.keyboards.inline import (
     get_check_interval_keyboard,
     get_language_keyboard,
-    get_main_menu_keyboard,
     get_reminder_time_keyboard,
     get_settings_menu_keyboard,
     get_timezone_keyboard,
 )
+
 from src.states.fsm import MainFSM, SettingsFSM
 
 logger = logging.getLogger(__name__)
@@ -138,9 +139,10 @@ async def _render_settings_for_telegram_id(
             lang = lang_override or "ru"
             return (
                 t("common.user_not_found", lang),
-                get_main_menu_keyboard(lang),
+                await main_menu_keyboard_for_telegram(telegram_id, lang),
                 lang,
             )
+
         lang = normalize_lang(lang_override or user.language)
         text = build_settings_menu_text(
             language=lang,
@@ -457,7 +459,9 @@ async def settings_nav_back(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
         t("main.menu", lang),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(
+            callback.from_user.id, lang
+        ),
     )
 
 
@@ -475,5 +479,9 @@ async def settings_nav_cancel(callback: CallbackQuery, state: FSMContext) -> Non
     await state.set_state(MainFSM.main_menu)
     await callback.message.edit_text(
         t("main.menu", lang),
-        reply_markup=get_main_menu_keyboard(lang),
+        reply_markup=await main_menu_keyboard_for_telegram(
+            callback.from_user.id, lang
+        ),
     )
+
+
