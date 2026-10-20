@@ -12,6 +12,7 @@ Every AI call shows a user-visible waiting indicator.
 
 from __future__ import annotations
 
+import html
 import logging
 from datetime import date, time
 from typing import Any
@@ -339,30 +340,35 @@ def _format_plan_preview(
     else:
         data = plan
 
-    title = data.get("title") or "—"
-    start = data.get("start_time") or "—"
-    end = data.get("end_time")
-    freq = data.get("frequency") or "daily"
+    # AI-generated text may contain Markdown metacharacters. Use HTML for the
+    # preview and escape every dynamic value before sending it to Telegram.
+    title = html.escape(str(data.get("title") or "—"))
+    start = html.escape(str(data.get("start_time") or "—"))
+    end_raw = data.get("end_time")
+    end = html.escape(str(end_raw)) if end_raw else None
+    freq = html.escape(str(data.get("frequency") or "daily"))
     duration = data.get("duration_minutes")
-    comment = data.get("comment") or "—"
+    duration_line = (
+        html.escape(f"{duration} мин") if duration is not None else "—"
+    )
+    comment = html.escape(str(data.get("comment") or "—"))
 
     time_line = f"{start}" + (f"–{end}" if end else "")
-    duration_line = f"{duration} мин" if duration is not None else "—"
 
     warning_block = ""
     if warnings:
-        details = "; ".join(warnings)
+        details = html.escape("; ".join(map(str, warnings)))
         warning_block = (
-            f"\n⚠️ *Время скорректировано под сетку 15 мин:* {details}\n"
+            f"\n⚠️ <b>Время скорректировано под сетку 15 мин:</b> {details}\n"
         )
 
     return (
-        "🤖 *Предложенный план (черновик):*\n\n"
-        f"*Привычка:* {title}\n"
-        f"*Время:* {time_line}\n"
-        f"*Частота:* {freq}\n"
-        f"*Длительность:* {duration_line}\n"
-        f"*Комментарий:* {comment}\n"
+        "🤖 <b>Предложенный план (черновик):</b>\n\n"
+        f"<b>Привычка:</b> {title}\n"
+        f"<b>Время:</b> {time_line}\n"
+        f"<b>Частота:</b> {freq}\n"
+        f"<b>Длительность:</b> {duration_line}\n"
+        f"<b>Комментарий:</b> {comment}\n"
         f"{warning_block}\n"
         "Создать привычку на основе этого плана?"
     )
@@ -518,7 +524,7 @@ async def _run_ai_turn(
             event,
             _format_plan_preview(plan_data, warnings=norm.warnings),
             reply_markup=get_ai_plan_confirm_keyboard(),
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         return
 
