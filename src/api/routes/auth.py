@@ -35,7 +35,7 @@ def _telegram_user_id_from_init_data(init_data: str) -> int:
         raise ValueError("invalid auth_date") from exc
     if auth_date <= 0 or abs(int(time.time()) - auth_date) > 86400:
         raise ValueError("expired Telegram initData")
-    data_check_string = "\\n".join(
+    data_check_string = "\n".join(
         f"{key}={value}" for key, value in sorted(pairs.items())
     )
     secret_key = hmac.new(
