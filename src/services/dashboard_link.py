@@ -98,12 +98,6 @@ async def issue_dashboard_link(
     if uid <= 0:
         return None
 
-    try:
-        ott = await create_ott(store, uid, ttl_seconds=ttl_seconds)
-    except Exception:
-        logger.exception("Failed to create dashboard OTT for user_id=%s", uid)
-        return None
-
-    if not ott:
-        return None
-    return build_login_url(base, ott)
+    # Keep the Telegram Mini App URL stable. Authentication is performed
+    # by the frontend using Telegram WebApp.initData on every launch.
+    return f"{base}/login"
