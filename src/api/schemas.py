@@ -15,6 +15,11 @@ class TokenExchangeRequest(BaseModel):
     token: str = Field(..., min_length=1)
 
 
+class TelegramInitDataRequest(BaseModel):
+    """Telegram Mini App initData used to authenticate the dashboard."""
+    init_data: str = Field(..., min_length=1)
+
+
 class TokenExchangeResponse(BaseModel):
     """JWT access token response."""
 
