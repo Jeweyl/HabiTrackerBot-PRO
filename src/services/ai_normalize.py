@@ -311,19 +311,45 @@ def normalize_plan_times(
         duration = span
         corrections.append("duration_from_range")
     else:
-        # No end, no duration
+        # No end, no duration.
+        # For habits we need a concrete interval before applying the plan.
+        # AI responses occasionally omit both fields even when the intent is
+        # otherwise clear. Use a conservative 30-minute default rather than
+        # rejecting an otherwise usable plan. This is explicit in the warning
+        # and can be corrected by the user in the preview before confirmation.
         if kind == "habit":
+            default_duration = 30
+            derived_end = _add_minutes_hh_mm(start_s, default_duration)
+            if derived_end is None:
+                logger.warning(
+                    "AI plan rejected: default habit duration crosses midnight "
+                    "(start=%s duration=%s)",
+                    start_s,
+                    default_duration,
+                )
+                return NormalizeResult(
+                    ok=False,
+                    error="end time would cross midnight",
+                    corrections=corrections + ["reject_midnight"],
+                    warnings=warnings,
+                )
+            end_s = derived_end
+            duration = default_duration
+            corrections.append("default_habit_duration")
+            warnings.append(
+                f"duration not provided → defaulted to {default_duration} min "
+                f"(end_time={derived_end})"
+            )
             logger.warning(
-                "AI plan rejected: habit plan missing end_time and duration"
+                "AI plan missing end_time and duration; defaulting habit "
+                "duration to %s min (start=%s end=%s)",
+                default_duration,
+                start_s,
+                derived_end,
             )
-            return NormalizeResult(
-                ok=False,
-                error="missing end_time and duration_minutes",
-                corrections=corrections + ["reject_missing_end"],
-                warnings=warnings,
-            )
-        # task open-ended OK
-        duration = None
+        else:
+            # task open-ended OK
+            duration = None
 
     # Final grid check (derived end always on grid if start+duration are)
     if end_s is not None:
