@@ -4,8 +4,6 @@
 ![License](https://img.shields.io/badge/License-Proprietary-red.svg)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)
 
-**Private product repository.** Source is proprietary — not open source.
-
 > **Live demo:** [@HabiTrakerBot](https://t.me/HabiTrakerBot) · **Channel:** [@HabiTraker](https://t.me/HabiTraker)
 
 Public marketing (no source):
