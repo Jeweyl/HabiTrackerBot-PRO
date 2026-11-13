@@ -21,15 +21,6 @@ Licensing & business: [COMMERCIAL.md](COMMERCIAL.md) · Freemium rules: [docs/FR
 
 HabiTracker is a **Telegram-first habit assistant**: templates generate daily tasks, time conflicts are blocked early, check-ins nudge without spam, and an AI wizard turns vague goals into SMART plans. A Vue dashboard adds charts and schedule views.
 
-### Freemium (direction)
-
-| Tier | Includes |
-|------|----------|
-| **Core (free)** | Habits, tasks, calendar, check-ins, conflicts, settings, basic in-bot stats |
-| **Premium** | AI habit/task assistants, Vue dashboard & charts (points and/or Pro) |
-
-Points economy and gates: [docs/FREEMIUM.md](docs/FREEMIUM.md). Implementation of billing is incremental; core tracking stays free.
-
 ---
 
 ## Capabilities
